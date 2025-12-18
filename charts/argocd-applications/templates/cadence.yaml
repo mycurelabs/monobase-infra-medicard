@@ -1,0 +1,43 @@
+{{- if .Values.cadence.enabled }}
+# ArgoCD Application: Cadence WebSocket Sync Service
+# Sync Wave 3 - Deploy application after database
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.global.namespace }}-cadence
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.argocd.repoURL }}
+    targetRevision: {{ .Values.argocd.targetRevision | default "HEAD" }}
+    path: charts/cadence
+    helm:
+      releaseName: cadence
+      valuesObject:
+        global:
+          {{- .Values.global | toYaml | nindent 10 }}
+        {{- omit .Values.cadence "enabled" | toYaml | nindent 8 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.global.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 5m
+{{- end }}

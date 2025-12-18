@@ -1,0 +1,25 @@
+{{- if and .Values.enabled .Values.gateway.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "dentalemon.fullname" . }}
+  namespace: {{ include "dentalemon.namespace" . }}
+  labels:
+    {{- include "dentalemon.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ include "dentalemon.gateway.name" . }}
+      namespace: {{ include "dentalemon.gateway.namespace" . }}
+      sectionName: https
+  hostnames:
+    - {{ include "dentalemon.gateway.hostname" . }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "dentalemon.fullname" . }}
+          port: {{ .Values.service.port }}
+          weight: 1
+{{- end }}

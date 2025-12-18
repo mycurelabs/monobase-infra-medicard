@@ -1,0 +1,25 @@
+{{- if and .Values.enabled .Values.gateway.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "cadence.fullname" . }}
+  namespace: {{ include "cadence.namespace" . }}
+  labels:
+    {{- include "cadence.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ include "cadence.gateway.name" . }}
+      namespace: {{ include "cadence.gateway.namespace" . }}
+      sectionName: https  # Only attach to HTTPS listener
+  hostnames:
+    - {{ include "cadence.gateway.hostname" . }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "cadence.fullname" . }}
+          port: {{ .Values.service.port }}
+          weight: 1
+{{- end }}

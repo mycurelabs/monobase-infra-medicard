@@ -1,0 +1,43 @@
+{{- if .Values.dentalemon.enabled }}
+# ArgoCD Application: DentaLemon Frontend
+# Sync Wave 3 - Deploy application after database
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.global.namespace }}-dentalemon
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.argocd.repoURL }}
+    targetRevision: {{ .Values.argocd.targetRevision | default "HEAD" }}
+    path: charts/dentalemon
+    helm:
+      releaseName: dentalemon
+      valuesObject:
+        global:
+          {{- .Values.global | toYaml | nindent 10 }}
+        {{- omit .Values.dentalemon "enabled" | toYaml | nindent 8 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.global.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 5m
+{{- end }}

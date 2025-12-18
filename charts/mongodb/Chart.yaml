@@ -1,0 +1,25 @@
+apiVersion: v2
+name: mongodb
+description: MongoDB database with External Secrets integration
+type: application
+version: 1.0.0
+appVersion: "7.0.14"
+
+keywords:
+  - mongodb
+  - database
+  - external-secrets
+
+maintainers:
+  - name: MyCure
+    email: devops@mycure.md
+
+dependencies:
+  - name: mongodb
+    version: 16.4.4
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: mongodb.enabled
+
+annotations:
+  category: Database
+  licenses: Apache-2.0

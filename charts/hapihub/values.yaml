@@ -1,0 +1,203 @@
+# Default values for HapiHub chart
+# This is a YAML-formatted file with sensible defaults
+# Override these values in deployment values files
+
+# Global configuration (shared across charts)
+global:
+  domain: example.com
+  namespace: example-prod
+  environment: production
+  gateway:
+    name: shared-gateway
+    namespace: gateway-system
+
+# HapiHub application configuration
+enabled: true
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/mycurelabs/hapihub
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 7500
+  targetPort: 7500
+  annotations: {}
+
+# Gateway API HTTPRoute configuration
+gateway:
+  enabled: true
+  hostname: ""  # Empty = uses hapihub.{global.domain}
+  parentRefs:
+    - name: shared-gateway
+      namespace: gateway-system
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 7500
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 7500
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - hapihub
+          topologyKey: kubernetes.io/hostname
+
+# Application configuration (ConfigMap)
+config:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "7500"
+
+# MongoDB dependency configuration
+mongodb:
+  serviceName: "mongodb"
+  database: "hapihub"
+  username: "root"
+  replicaSet: "rs0"
+
+# Valkey (Redis-compatible cache) dependency configuration
+valkey:
+  enabled: true
+
+# MinIO storage dependency configuration
+minio:
+  enabled: false
+  bucket: "hapihub-files"
+  region: "us-east-1"
+
+# Mailpit dependency configuration (email testing for dev/staging)
+mailpit:
+  enabled: false
+
+# Feature flags for optional integrations
+stripe:
+  enabled: false
+
+s3:
+  enabled: false
+  bucket: ""
+  region: "us-east-1"
+  endpoint: ""
+
+oauth:
+  google:
+    enabled: false
+
+calcom:
+  enabled: false
+
+# External Secrets configuration
+externalSecrets:
+  enabled: false  # Disabled by default, enable in deployment values
+  secretStore: "gcp-secretstore"  # ClusterSecretStore name
+  refreshInterval: 1h
+  secrets: []
+  # Example secrets configuration:
+  # secrets:
+  #   - secretKey: JWT_SECRET
+  #     remoteKey: mycure-prod-jwt-secret
+  #   - secretKey: JWT_REFRESH_SECRET
+  #     remoteKey: mycure-prod-jwt-refresh-secret
+  #   - secretKey: ENCRYPTION_KEY
+  #     remoteKey: mycure-prod-encryption-key
+  #   - secretKey: STRIPE_SECRET_KEY
+  #     remoteKey: mycure-prod-stripe-secret-key
+  #   - secretKey: STRIPE_WEBHOOK_SECRET
+  #     remoteKey: mycure-prod-stripe-webhook-secret
+  #   - secretKey: S3_ACCESS_KEY_ID
+  #     remoteKey: mycure-prod-s3-access-key
+  #   - secretKey: S3_SECRET_ACCESS_KEY
+  #     remoteKey: mycure-prod-s3-secret-key
+  #   - secretKey: GOOGLE_CLIENT_ID
+  #     remoteKey: mycure-prod-google-client-id
+  #   - secretKey: GOOGLE_CLIENT_SECRET
+  #     remoteKey: mycure-prod-google-client-secret
+  #   - secretKey: CALCOM_API_KEY
+  #     remoteKey: mycure-prod-calcom-api-key
+
+# Network Policy configuration
+networkPolicy:
+  enabled: true  # Enable by default for security
+  gateway:
+    namespace: envoy-gateway-system
+    name: envoy-gateway
+
+# Service Monitor for Prometheus (if monitoring enabled)
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /metrics

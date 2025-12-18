@@ -1,0 +1,110 @@
+# Default values for DentaLemon frontend chart
+# Override these values in deployment values files
+
+global:
+  domain: example.com
+  namespace: example-prod
+  environment: production
+  gateway:
+    name: shared-gateway
+    namespace: gateway-system
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mycurelabs/dentalemonapp
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+gateway:
+  enabled: true
+  hostname: ""  # Empty = uses dentalemon.{global.domain}
+  parentRefs:
+    - name: shared-gateway
+      namespace: gateway-system
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+config:
+  API_URL: ""
+  HAPIHUB_URL: ""
+
+networkPolicy:
+  enabled: true
+  gateway:
+    namespace: envoy-gateway-system
+    name: envoy-gateway
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /metrics

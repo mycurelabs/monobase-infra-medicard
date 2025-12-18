@@ -1,0 +1,43 @@
+{{- if .Values.mycure.enabled }}
+# ArgoCD Application: MyCure Frontend
+# Sync Wave 3 - Deploy application after database
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.global.namespace }}-mycure
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.argocd.repoURL }}
+    targetRevision: {{ .Values.argocd.targetRevision | default "HEAD" }}
+    path: charts/mycure
+    helm:
+      releaseName: mycure
+      valuesObject:
+        global:
+          {{- .Values.global | toYaml | nindent 10 }}
+        {{- omit .Values.mycure "enabled" | toYaml | nindent 8 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.global.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 5m
+{{- end }}

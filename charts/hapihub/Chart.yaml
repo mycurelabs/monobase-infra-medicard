@@ -1,0 +1,20 @@
+apiVersion: v2
+name: hapihub
+description: HapiHub - Bun.js Backend API for MyCure Healthcare
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - api
+  - bun
+  - hapihub
+  - mycure
+  - healthcare
+home: https://github.com/mycurelabs/hapihub
+maintainers:
+  - name: MyCure
+    email: devops@mycure.md
+
+# Dependencies managed via separate ArgoCD Applications
+# See: argocd/applications/ for MongoDB, Valkey, MinIO, Mailpit
+# This is a pure application chart with no sub-charts

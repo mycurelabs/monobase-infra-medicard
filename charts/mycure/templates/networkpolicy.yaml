@@ -1,0 +1,47 @@
+{{- if and .Values.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mycure.fullname" . }}
+  namespace: {{ include "mycure.namespace" . }}
+  labels:
+    {{- include "mycure.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mycure.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow from Gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.gateway.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Values.networkPolicy.gateway.name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.targetPort }}
+
+  egress:
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # HTTPS egress (CDN, analytics, external assets)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

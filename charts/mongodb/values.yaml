@@ -1,0 +1,111 @@
+# MongoDB Wrapper Chart - Default Values
+# Wraps Bitnami MongoDB chart with External Secrets integration
+
+# Global enable/disable toggle
+enabled: true
+
+# External Secrets configuration
+# Creates ExternalSecret to sync MongoDB credentials from cloud secret manager
+externalSecrets:
+  enabled: true
+  secretStore: "gcp-secretstore"
+  refreshInterval: "1h"
+  rootPasswordKey: ""      # Must be provided (e.g., mycure-prod-mongodb-root-password)
+  replicaSetKeyKey: ""     # Must be provided (e.g., mycure-prod-mongodb-replica-set-key)
+
+# Bitnami MongoDB subchart values
+# Full configuration: https://github.com/bitnami/charts/tree/main/bitnami/mongodb
+mongodb:
+  enabled: true
+
+  # Authentication
+  auth:
+    enabled: true
+    existingSecret: "mongodb"  # References secret created by ExternalSecret
+    rootUser: root
+
+  # Architecture - replicaset for production
+  architecture: replicaset
+  replicaCount: 3
+  replicaSetName: rs0
+
+  # Arbiter
+  arbiter:
+    enabled: true
+
+  # Image
+  image:
+    registry: docker.io
+    repository: bitnami/mongodb
+    tag: 7.0.14-debian-12-r0
+
+  # Persistence
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 50Gi
+
+  # Resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: false
+
+  # Pod Security Context
+  podSecurityContext:
+    enabled: true
+    fsGroup: 1001
+
+  # Container Security Context
+  containerSecurityContext:
+    enabled: true
+    runAsUser: 1001
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  # NetworkPolicy (Bitnami chart feature)
+  networkPolicy:
+    enabled: true
+
+    # Don't allow external connections
+    allowExternal: false
+
+    # Allow connections from HapiHub and Cadence pods
+    ingressRules:
+      primaryAccessOnlyFrom:
+        enabled: true
+        namespaceSelector: {}  # Same namespace
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: hapihub
+
+      customRules:
+        # Allow Cadence (sync service)
+        - from:
+          - podSelector:
+              matchLabels:
+                app.kubernetes.io/name: cadence
+
+        # Allow metrics scraping by Prometheus
+        - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus
+          ports:
+            - protocol: TCP
+              port: 9216  # MongoDB exporter port

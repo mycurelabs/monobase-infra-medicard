@@ -1,0 +1,15 @@
+apiVersion: v2
+name: dentalemon
+description: DentaLemon - Dental-specific healthcare frontend application
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - frontend
+  - caddy
+  - dental
+  - healthcare
+home: https://github.com/mycurelabs/dentalemonapp
+maintainers:
+  - name: MyCure
+    email: devops@mycure.md

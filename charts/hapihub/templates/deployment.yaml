@@ -1,0 +1,243 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hapihub.fullname" . }}
+  namespace: {{ include "hapihub.namespace" . }}
+  labels:
+    {{- include "hapihub.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hapihub.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "hapihub.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hapihub.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.targetPort }}
+          protocol: TCP
+        {{- if .Values.livenessProbe.enabled }}
+        livenessProbe:
+          {{- if .Values.livenessProbe.httpGet }}
+          httpGet:
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.livenessProbe.httpGet.port | default "http" }}
+          {{- end }}
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+        {{- end }}
+        {{- if .Values.readinessProbe.enabled }}
+        readinessProbe:
+          {{- if .Values.readinessProbe.httpGet }}
+          httpGet:
+            path: {{ .Values.readinessProbe.httpGet.path }}
+            port: {{ .Values.readinessProbe.httpGet.port | default "http" }}
+          {{- end }}
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        env:
+        # Set HOME to /tmp to avoid permission denied errors when running as non-root
+        - name: HOME
+          value: "/tmp"
+        # Load from ConfigMap
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "hapihub.fullname" . }}
+              key: NODE_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "hapihub.fullname" . }}
+              key: LOG_LEVEL
+        - name: PORT
+          value: "{{ .Values.service.targetPort }}"
+        # MongoDB connection - individual components
+        - name: MONGODB_HOST
+          value: {{ include "hapihub.mongodb.host" . | quote }}
+        - name: MONGODB_PORT
+          value: "27017"
+        - name: MONGODB_DATABASE
+          value: {{ .Values.mongodb.database | default "hapihub" | quote }}
+        - name: MONGODB_USER
+          value: {{ .Values.mongodb.username | default "root" | quote }}
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb
+              key: mongodb-root-password
+        # DATABASE_URL constructed from components using K8s variable expansion
+        - name: DATABASE_URL
+          value: {{ include "hapihub.mongodb.connectionUrl" . | quote }}
+        # Service URLs from dependencies
+        {{- if .Values.valkey.enabled }}
+        - name: REDIS_URL
+          value: {{ include "hapihub.valkey.url" . | quote }}
+        {{- end }}
+        {{- if .Values.minio.enabled }}
+        - name: STORAGE_PROVIDER
+          value: "minio"
+        - name: STORAGE_ENDPOINT
+          value: {{ include "hapihub.minio.url" . | quote }}
+        - name: STORAGE_PUBLIC_ENDPOINT
+          value: {{ include "hapihub.minio.url" . | quote }}
+        - name: STORAGE_BUCKET
+          value: {{ .Values.minio.bucket | default "hapihub-files" | quote }}
+        - name: STORAGE_REGION
+          value: {{ .Values.minio.region | default "us-east-1" | quote }}
+        - name: STORAGE_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio
+              key: root-user
+        - name: STORAGE_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio
+              key: root-password
+        {{- end }}
+        {{- if .Values.mailpit.enabled }}
+        - name: SMTP_HOST
+          value: {{ include "hapihub.mailpit.host" . | quote }}
+        - name: SMTP_PORT
+          value: "25"
+        - name: SMTP_SECURE
+          value: "false"
+        {{- end }}
+        # Load secrets from External Secrets Operator
+        {{- if .Values.externalSecrets.enabled }}
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: JWT_SECRET
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: JWT_REFRESH_SECRET
+              optional: true
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENCRYPTION_KEY
+              optional: true
+        {{- if .Values.stripe.enabled }}
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STRIPE_SECRET_KEY
+        - name: STRIPE_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STRIPE_WEBHOOK_SECRET
+              optional: true
+        {{- end }}
+        {{- if .Values.s3.enabled }}
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: S3_ACCESS_KEY_ID
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: S3_SECRET_ACCESS_KEY
+        - name: S3_BUCKET
+          value: {{ .Values.s3.bucket | quote }}
+        - name: S3_REGION
+          value: {{ .Values.s3.region | default "us-east-1" | quote }}
+        {{- if .Values.s3.endpoint }}
+        - name: S3_ENDPOINT
+          value: {{ .Values.s3.endpoint | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.oauth.google.enabled }}
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: GOOGLE_CLIENT_SECRET
+        {{- end }}
+        {{- if .Values.calcom.enabled }}
+        - name: CALCOM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: CALCOM_API_KEY
+        {{- end }}
+        {{- end }}
+        # Additional environment variables from config
+        {{- range $key, $value := .Values.config }}
+        {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+      {{- $nodePool := include "hapihub.nodePool" . -}}
+      {{- if or $nodePool .Values.nodeSelector }}
+      nodeSelector:
+        {{- if $nodePool }}
+        node-pool: {{ $nodePool }}
+        {{- end }}
+        {{- with .Values.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or $nodePool .Values.tolerations }}
+      tolerations:
+        {{- if $nodePool }}
+        - key: "node-pool"
+          operator: "Equal"
+          value: {{ $nodePool | quote }}
+          effect: "NoSchedule"
+        {{- end }}
+        {{- with .Values.tolerations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+{{- end }}

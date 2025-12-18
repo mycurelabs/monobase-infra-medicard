@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hapihub.fullname" . }}
+  namespace: {{ include "hapihub.namespace" . }}
+  labels:
+    {{- include "hapihub.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.config.NODE_ENV | quote }}
+  LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
+  PORT: {{ .Values.config.PORT | quote }}
+  {{- range $key, $value := .Values.config }}
+  {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

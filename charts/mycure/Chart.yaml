@@ -1,0 +1,15 @@
+apiVersion: v2
+name: mycure
+description: MyCure - Patient-facing healthcare frontend application
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - frontend
+  - caddy
+  - mycure
+  - healthcare
+home: https://github.com/mycurelabs/mycureapp
+maintainers:
+  - name: MyCure
+    email: devops@mycure.md
