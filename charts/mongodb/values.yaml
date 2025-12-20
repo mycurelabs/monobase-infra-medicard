@@ -61,7 +61,7 @@ externalSecrets:
 # Authentication
 auth:
   username: "root"
-  database: "ferretdb"
+  database: "postgres"  # Use postgres database where DocumentDB extension is installed
   existingSecret: "mongodb"
 
 # Pod Security Context

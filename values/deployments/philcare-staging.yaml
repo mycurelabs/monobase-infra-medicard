@@ -259,7 +259,7 @@ mongodb:
 
   auth:
     username: "root"
-    database: "ferretdb"
+    database: "postgres"
     existingSecret: "mongodb"
 
   externalSecrets:
