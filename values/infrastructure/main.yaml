@@ -248,6 +248,9 @@ gateway:
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: mycure.stitchtechsolutions.com
 
+  # ClusterIssuer for TLS certificates
+  clusterIssuer: letsencrypt-prod
+
   # GatewayClass configuration - Reference EnvoyProxy for static IP
   gatewayClass:
     parametersRef:
