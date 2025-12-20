@@ -59,14 +59,24 @@ Create the name of the namespace to use
 Resolve the gateway name to use
 */}}
 {{- define "minio.gateway.name" -}}
-{{- .Values.minio.gateway.parentRefs | first | dig "name" .Values.global.gateway.name }}
+{{- $parentRef := .Values.minio.gateway.parentRefs | first | default dict -}}
+{{- $globalGatewayName := "" -}}
+{{- if and .Values.global .Values.global.gateway -}}
+{{- $globalGatewayName = .Values.global.gateway.name -}}
+{{- end -}}
+{{- $parentRef | dig "name" $globalGatewayName | default "shared-gateway" }}
 {{- end }}
 
 {{/*
 Resolve the gateway namespace to use
 */}}
 {{- define "minio.gateway.namespace" -}}
-{{- .Values.minio.gateway.parentRefs | first | dig "namespace" .Values.global.gateway.namespace }}
+{{- $parentRef := .Values.minio.gateway.parentRefs | first | default dict -}}
+{{- $globalGatewayNamespace := "" -}}
+{{- if and .Values.global .Values.global.gateway -}}
+{{- $globalGatewayNamespace = .Values.global.gateway.namespace -}}
+{{- end -}}
+{{- $parentRef | dig "namespace" $globalGatewayNamespace | default "gateway-system" }}
 {{- end }}
 
 {{/*
