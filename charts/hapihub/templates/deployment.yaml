@@ -97,8 +97,8 @@ spec:
             secretKeyRef:
               name: mongodb
               key: mongodb-root-password
-        # DATABASE_URL constructed from components using K8s variable expansion
-        - name: DATABASE_URL
+        # MONGO_URI constructed from components using K8s variable expansion
+        - name: MONGO_URI
           value: {{ include "hapihub.mongodb.connectionUrl" . | quote }}
         # Service URLs from dependencies
         {{- if .Values.valkey.enabled }}
