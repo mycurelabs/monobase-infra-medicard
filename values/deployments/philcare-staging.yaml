@@ -304,6 +304,7 @@ minio:
 
     auth:
       existingSecret: minio
+      forceNewKeys: true
 
     persistence:
       enabled: true
