@@ -273,6 +273,9 @@ gateway:
     - name: staging-minio-tls
       hostname: storage.stg.mycure.stitchtechsolutions.com
       enabled: true
+    - name: staging-cadence-tls
+      hostname: sync.stg.mycure.stitchtechsolutions.com
+      enabled: true
     - name: staging-mailpit-tls
       hostname: mail.stg.mycure.stitchtechsolutions.com
       enabled: false  # DNS record missing - enable after adding DNS
