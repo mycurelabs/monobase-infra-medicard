@@ -275,7 +275,7 @@ gateway:
       enabled: true
     - name: staging-mailpit-tls
       hostname: mail.stg.mycure.stitchtechsolutions.com
-      enabled: true
+      enabled: false  # DNS record missing - enable after adding DNS
 
     # Production environment
     - name: production-hapihub-tls
