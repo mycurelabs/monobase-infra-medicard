@@ -151,7 +151,7 @@ cadence:
       memory: 4Gi
 
   gateway:
-    hostname: ""
+    hostname: "sync.stg.mycure.stitchtechsolutions.com"
 
   livenessProbe:
     enabled: true
