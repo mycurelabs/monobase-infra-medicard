@@ -261,9 +261,8 @@ gateway:
       namespace: envoy-gateway-system
 
   # TLS/Certificate configuration - Per-app certificates
-  # DEPLOYMENT-SPECIFIC: Certificate hostnames for this deployment
+  # DEPLOYMENT-SPECIFIC: Certificate hostnames for this deployment (staging only)
   certificates:
-    # Staging environment
     - name: staging-hapihub-tls
       hostname: api.stg.mycure.stitchtechsolutions.com
       enabled: true
@@ -280,17 +279,6 @@ gateway:
       hostname: mail.stg.mycure.stitchtechsolutions.com
       enabled: false  # DNS record missing - enable after adding DNS
 
-    # Production environment
-    - name: production-hapihub-tls
-      hostname: api.mycure.stitchtechsolutions.com
-      enabled: true
-    - name: production-mycure-tls
-      hostname: cms.mycure.stitchtechsolutions.com
-      enabled: true
-    - name: production-storage-tls
-      hostname: storage.mycure.stitchtechsolutions.com
-      enabled: true
-
   # HTTP to HTTPS redirect
   # DEPLOYMENT-SPECIFIC: Override chart default (disabled due to HTTP-01 ACME challenge)
   httpRedirect:
@@ -303,11 +291,10 @@ envoyProxyConfig:
   cloudProvider: azure
 
   # Azure AKS Configuration
-  # These values should be updated per environment (staging vs production cluster)
+  # Staging cluster configuration
   azure:
     # Azure Public IP resource for static IP binding
-    # This PIP was provisioned externally and maps to 52.187.145.236
-    publicIpName: "medicard-production-gateway-ip"
+    publicIpName: "medicard-staging-gateway-ip"
     resourceGroup: "mycurerg"
 
 # External Secrets - Secret management
