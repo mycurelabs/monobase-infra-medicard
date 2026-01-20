@@ -249,7 +249,15 @@ gateway:
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: mycurex.medicardphils.com
 
-  # ClusterIssuer for TLS certificates
+  # Gateway listeners - TLS is handled externally
+  gateway:
+    listeners:
+      https:
+        enabled: false  # DISABLED: TLS handled by client's external gateway
+      http:
+        enabled: true   # HTTP only - external gateway handles TLS termination
+
+  # ClusterIssuer for TLS certificates (not used when HTTPS disabled)
   clusterIssuer: letsencrypt-prod
 
   # GatewayClass configuration - Reference EnvoyProxy for static IP
