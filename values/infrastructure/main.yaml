@@ -219,8 +219,9 @@ argocd:
         memory: 128Mi
 
 # Cert Manager - TLS certificate automation (infrastructure-wide)
+# DISABLED: Client handles TLS externally via their own gateway
 certManager:
-  enabled: true
+  enabled: false
 
   # ClusterIssuers configuration
   issuers:
@@ -246,7 +247,7 @@ gateway:
   enabled: true
 
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
-  domain: mycure.stitchtechsolutions.com
+  domain: mycurex.medicardphils.com
 
   # ClusterIssuer for TLS certificates
   clusterIssuer: letsencrypt-prod
@@ -262,22 +263,23 @@ gateway:
 
   # TLS/Certificate configuration - Per-app certificates
   # DEPLOYMENT-SPECIFIC: Certificate hostnames for this deployment (staging only)
+  # DISABLED: TLS is handled externally by client's gateway
   certificates:
     - name: staging-hapihub-tls
-      hostname: api.stg.mycure.stitchtechsolutions.com
-      enabled: true
+      hostname: api.mycurex.medicardphils.com
+      enabled: false
     - name: staging-mycure-tls
-      hostname: cms.stg.mycure.stitchtechsolutions.com
-      enabled: true
+      hostname: cms.mycurex.medicardphils.com
+      enabled: false
     - name: staging-minio-tls
-      hostname: storage.stg.mycure.stitchtechsolutions.com
-      enabled: true
+      hostname: storage.mycurex.medicardphils.com
+      enabled: false
     - name: staging-cadence-tls
-      hostname: sync.stg.mycure.stitchtechsolutions.com
-      enabled: true
+      hostname: sync.mycurex.medicardphils.com
+      enabled: false
     - name: staging-mailpit-tls
-      hostname: mail.stg.mycure.stitchtechsolutions.com
-      enabled: false  # DNS record missing - enable after adding DNS
+      hostname: mail.mycurex.medicardphils.com
+      enabled: false
 
   # HTTP to HTTPS redirect
   # DEPLOYMENT-SPECIFIC: Override chart default (disabled due to HTTP-01 ACME challenge)
@@ -303,26 +305,17 @@ externalSecrets:
 
   # ClusterSecretStore configurations
   # See charts/external-secrets-stores/README.md for detailed configuration
-  # DEPLOYMENT-SPECIFIC: GCP project and service account configuration
+  # DEPLOYMENT-SPECIFIC: Azure Key Vault configuration
   stores:
-    # GCP Secret Manager store (current setup)
-    - name: gcp-secretstore
-      provider: gcp
-      gcp:
-        projectId: "mc-v4-prod"  # GCP Secret Manager project
+    # Azure Key Vault store
+    - name: azure-secretstore
+      provider: azure
+      azure:
+        vaultUrl: "https://kv-mpi-sea-a-mycurex01.vault.azure.net"
+        tenantId: "31e62360-d307-45a7-932a-f774aa7a6288"
         auth:
-          # Using Service Account Key authentication (works on any K8s cluster)
-          serviceAccountKey:
-            enabled: true
-            secretRef:
-              name: gcpsm-secret
-              key: secret-access-credentials
-              namespace: external-secrets-system
-          # Alternative: Workload Identity (for GKE only)
           workloadIdentity:
-            enabled: false
-            clusterLocation: us-central1
-            clusterName: ""
+            enabled: true
             serviceAccountRef:
               name: external-secrets
               namespace: external-secrets-system
@@ -336,7 +329,7 @@ externalDNS:
   # Creates ExternalSecret to sync DNS provider API token from secret manager
   externalSecrets:
     enabled: true
-    secretStore: "gcp-secretstore"
+    secretStore: "azure-secretstore"
     refreshInterval: "1h"
     remoteKey: "medicard-infra-cloudflare-api-token"
     generator:

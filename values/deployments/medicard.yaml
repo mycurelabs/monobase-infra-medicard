@@ -1,9 +1,9 @@
 # MediCard Staging Configuration
 # Staging environment on Azure AKS
-# Domain: stg.mycure.stitchtechsolutions.com
+# Domain: mycurex.medicardphils.com
 
 global:
-  domain: stg.mycure.stitchtechsolutions.com
+  domain: mycurex.medicardphils.com
   namespace: medicard-staging
   environment: staging
 
@@ -55,7 +55,7 @@ hapihub:
       memory: 1Gi
 
   gateway:
-    hostname: "api.stg.mycure.stitchtechsolutions.com"
+    hostname: "api.mycurex.medicardphils.com"
     timeouts:
       request: "60s"
 
@@ -83,7 +83,7 @@ hapihub:
 
   externalSecrets:
     enabled: true
-    secretStore: gcp-secretstore
+    secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
     secrets:
@@ -122,11 +122,11 @@ mycure:
       memory: 128Mi
 
   gateway:
-    hostname: "cms.stg.mycure.stitchtechsolutions.com"
+    hostname: "cms.mycurex.medicardphils.com"
 
   config:
-    API_URL: "https://api.stg.mycure.stitchtechsolutions.com"
-    HAPIHUB_URL: "https://api.stg.mycure.stitchtechsolutions.com"
+    API_URL: "https://api.mycurex.medicardphils.com"
+    HAPIHUB_URL: "https://api.mycurex.medicardphils.com"
 
   podDisruptionBudget:
     enabled: false
@@ -151,7 +151,7 @@ cadence:
       memory: 4Gi
 
   gateway:
-    hostname: "sync.stg.mycure.stitchtechsolutions.com"
+    hostname: "sync.mycurex.medicardphils.com"
 
   livenessProbe:
     enabled: true
@@ -264,7 +264,7 @@ mongodb:
 
   externalSecrets:
     enabled: true
-    secretStore: gcp-secretstore
+    secretStore: azure-secretstore
     refreshInterval: 1h
     passwordKey: medicard-staging-mongodb-root-password
 
