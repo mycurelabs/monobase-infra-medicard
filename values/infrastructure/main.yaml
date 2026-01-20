@@ -295,17 +295,21 @@ gateway:
     enabled: false
 
 # EnvoyProxy Configuration - Cloud-specific LoadBalancer settings
-# DEPLOYMENT-SPECIFIC: Configure for Azure AKS with static public IP
+# DEPLOYMENT-SPECIFIC: Configure for Azure AKS with internal LoadBalancer
+# Client's external gateway terminates TLS and forwards HTTP to this internal IP
 envoyProxyConfig:
   enabled: true
   cloudProvider: azure
 
-  # Azure AKS Configuration
-  # Staging cluster configuration
+  # Azure AKS Configuration - Internal LoadBalancer (no public IP needed)
   azure:
-    # Azure Public IP resource for static IP binding
-    publicIpName: "medicard-staging-gateway-ip"
-    resourceGroup: "mycurerg"
+    publicIpName: ""  # Not using public IP
+    resourceGroup: ""
+
+  # Internal LoadBalancer - provides private IP within Azure VNet
+  # Client's gateway routes to this internal IP after TLS termination
+  customAnnotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 
 # External Secrets - Secret management
 externalSecrets:
