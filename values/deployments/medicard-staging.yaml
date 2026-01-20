@@ -1,10 +1,10 @@
-# PhilCare Staging Configuration
+# MediCard Staging Configuration
 # Staging environment on Azure AKS
 # Domain: stg.mycure.stitchtechsolutions.com
 
 global:
   domain: stg.mycure.stitchtechsolutions.com
-  namespace: philcare-staging
+  namespace: medicard-staging
   environment: staging
 
 # ===== DISABLED: Monobase API (using HapiHub instead) =====
@@ -88,11 +88,11 @@ hapihub:
     refreshInterval: 1h
     secrets:
       - secretKey: GOOGLE_CLIENT_ID
-        remoteKey: philcare-staging-google-oauth-client-id
+        remoteKey: medicard-staging-google-oauth-client-id
       - secretKey: GOOGLE_CLIENT_SECRET
-        remoteKey: philcare-staging-google-oauth-client-secret
+        remoteKey: medicard-staging-google-oauth-client-secret
       - secretKey: STRIPE_SECRET_KEY
-        remoteKey: philcare-staging-stripe-secret-key
+        remoteKey: medicard-staging-stripe-secret-key
 
   mongodb:
     serviceName: mongodb
@@ -180,7 +180,7 @@ postgresql:
   # External Secrets configuration
   externalSecrets:
     enabled: true
-    remoteKey: philcare-staging-postgresql-password
+    remoteKey: medicard-staging-postgresql-password
     generator:
       generate: true
       type: password
@@ -266,7 +266,7 @@ mongodb:
     enabled: true
     secretStore: gcp-secretstore
     refreshInterval: 1h
-    passwordKey: philcare-staging-mongodb-root-password
+    passwordKey: medicard-staging-mongodb-root-password
 
   networkPolicy:
     enabled: true
@@ -283,7 +283,7 @@ minio:
   externalSecrets:
     enabled: true
     secrets:
-      - remoteKey: philcare-staging-minio-root-password
+      - remoteKey: medicard-staging-minio-root-password
         generator:
           generate: true
           type: password

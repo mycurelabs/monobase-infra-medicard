@@ -56,7 +56,7 @@ externalSecrets:
   enabled: true
   secretStore: "gcp-secretstore"
   refreshInterval: "1h"
-  passwordKey: ""  # Must be provided (e.g., philcare-staging-mongodb-root-password)
+  passwordKey: ""  # Must be provided (e.g., medicard-staging-mongodb-root-password)
 
 # Authentication
 auth:

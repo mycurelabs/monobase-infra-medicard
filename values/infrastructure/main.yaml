@@ -6,7 +6,7 @@
 argocd:
   # Git repository for GitOps
   # DEPLOYMENT-SPECIFIC: Override chart default (template points to monobaselabs/monobase-infra)
-  repoURL: https://github.com/mycurelabs/monobase-infra-philcare.git
+  repoURL: https://github.com/mycurelabs/monobase-infra-medicard.git
   targetRevision: HEAD
 
   # ArgoCD Installation Configuration
@@ -60,7 +60,7 @@ argocd:
       # Git repository credentials
       repositories: |
         - type: git
-          url: https://github.com/mycurelabs/monobase-infra-philcare.git
+          url: https://github.com/mycurelabs/monobase-infra-medicard.git
 
       # Resource customizations
       resource.customizations: |
@@ -307,7 +307,7 @@ envoyProxyConfig:
   azure:
     # Azure Public IP resource for static IP binding
     # This PIP was provisioned externally and maps to 52.187.145.236
-    publicIpName: "philcare-production-gateway-ip"
+    publicIpName: "medicard-production-gateway-ip"
     resourceGroup: "mycurerg"
 
 # External Secrets - Secret management
@@ -341,7 +341,7 @@ externalSecrets:
               namespace: external-secrets-system
 
 # External DNS - Automatic DNS record management from HTTPRoutes
-# DISABLED: PhilCare uses manual DNS management
+# DISABLED: MediCard uses manual DNS management
 externalDNS:
   enabled: false
 
@@ -351,7 +351,7 @@ externalDNS:
     enabled: true
     secretStore: "gcp-secretstore"
     refreshInterval: "1h"
-    remoteKey: "philcare-infra-cloudflare-api-token"
+    remoteKey: "medicard-infra-cloudflare-api-token"
     generator:
       generate: false
       type: token

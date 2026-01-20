@@ -1,11 +1,11 @@
-# PhilCare Production Configuration
+# MediCard Production Configuration
 # Production environment on Azure AKS
 # Domain: mycure.stitchtechsolutions.com
 # Note: Most services disabled - using external managed services
 
 global:
   domain: mycure.stitchtechsolutions.com
-  namespace: philcare-production
+  namespace: medicard-production
   environment: production
 
 # ===== DISABLED: Monobase API (using external HapiHub) =====
@@ -87,11 +87,11 @@ hapihub:
     refreshInterval: 1h
     secrets:
       - secretKey: GOOGLE_CLIENT_ID
-        remoteKey: philcare-production-google-oauth-client-id
+        remoteKey: medicard-production-google-oauth-client-id
       - secretKey: GOOGLE_CLIENT_SECRET
-        remoteKey: philcare-production-google-oauth-client-secret
+        remoteKey: medicard-production-google-oauth-client-secret
       - secretKey: STRIPE_SECRET_KEY
-        remoteKey: philcare-production-stripe-secret-key
+        remoteKey: medicard-production-stripe-secret-key
 
   mongodb:
     serviceName: mongodb
@@ -177,7 +177,7 @@ postgresql:
 
   externalSecrets:
     enabled: true
-    remoteKey: philcare-production-postgresql-password
+    remoteKey: medicard-production-postgresql-password
     generator:
       generate: false
       type: password
@@ -221,8 +221,8 @@ mongodb:
 
   externalSecrets:
     enabled: true
-    rootPasswordKey: philcare-production-mongodb-root-password
-    replicaSetKey: philcare-production-mongodb-replica-set-key
+    rootPasswordKey: medicard-production-mongodb-root-password
+    replicaSetKey: medicard-production-mongodb-replica-set-key
 
   mongodb:
     fullnameOverride: "mongodb"
@@ -267,7 +267,7 @@ minio:
   externalSecrets:
     enabled: true
     secrets:
-      - remoteKey: philcare-production-minio-root-password
+      - remoteKey: medicard-production-minio-root-password
         generator:
           generate: false
           type: password
