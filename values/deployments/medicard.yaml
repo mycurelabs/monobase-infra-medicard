@@ -1,13 +1,14 @@
-# MediCard Staging Configuration
-# Staging environment on Azure AKS
-# Domain: stg.mycure.stitchtechsolutions.com
+# MediCard Production Configuration
+# Production environment on Azure AKS
+# Domain: mycure.stitchtechsolutions.com
+# Note: Most services disabled - using external managed services
 
 global:
-  domain: stg.mycure.stitchtechsolutions.com
-  namespace: medicard-staging
-  environment: staging
+  domain: mycure.stitchtechsolutions.com
+  namespace: medicard-production
+  environment: production
 
-# ===== DISABLED: Monobase API (using HapiHub instead) =====
+# ===== DISABLED: Monobase API (using external HapiHub) =====
 api:
   enabled: false
 
@@ -35,33 +36,31 @@ mycurev8:
 dentalemon:
   enabled: false
 
-# ===== HEALTHCARE: HapiHub API =====
+# ===== HEALTHCARE: HapiHub API (External Service) =====
 hapihub:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    tag: "10.3.4"
+    tag: "10.0.25"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
 
   resources:
     requests:
-      cpu: 500m
+      cpu: 100m
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 1Gi
+      memory: 512Mi
 
   gateway:
-    hostname: "api.stg.mycure.stitchtechsolutions.com"
+    hostname: "api.mycure.stitchtechsolutions.com"
     timeouts:
       request: "60s"
 
   env:
-    - name: CLUSTER_INSTANCES
-      value: "1"
     - name: BETTER_AUTH_RATE_LIMIT_ENABLED
       value: "true"
     - name: BETTER_AUTH_RATE_LIMIT_WINDOW
@@ -88,27 +87,25 @@ hapihub:
     refreshInterval: 1h
     secrets:
       - secretKey: GOOGLE_CLIENT_ID
-        remoteKey: medicard-staging-google-oauth-client-id
+        remoteKey: medicard-production-google-oauth-client-id
       - secretKey: GOOGLE_CLIENT_SECRET
-        remoteKey: medicard-staging-google-oauth-client-secret
+        remoteKey: medicard-production-google-oauth-client-secret
       - secretKey: STRIPE_SECRET_KEY
-        remoteKey: medicard-staging-stripe-secret-key
+        remoteKey: medicard-production-stripe-secret-key
 
   mongodb:
     serviceName: mongodb
     database: hapihub
     username: root
+    replicaSet: rs0
 
-  mailpit:
-    enabled: true
-
-# ===== HEALTHCARE: MyCure Frontend =====
+# ===== HEALTHCARE: MyCure Frontend (External Service) =====
 mycure:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.3.0"
+    tag: "10.2.4"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -122,18 +119,18 @@ mycure:
       memory: 128Mi
 
   gateway:
-    hostname: "cms.stg.mycure.stitchtechsolutions.com"
+    hostname: "cms.mycure.stitchtechsolutions.com"
 
   config:
-    API_URL: "https://api.stg.mycure.stitchtechsolutions.com"
-    HAPIHUB_URL: "https://api.stg.mycure.stitchtechsolutions.com"
+    API_URL: "https://api.mycure.stitchtechsolutions.com"
+    HAPIHUB_URL: "https://api.mycure.stitchtechsolutions.com"
 
   podDisruptionBudget:
     enabled: false
 
-# ===== HEALTHCARE: Cadence Real-time Sync (WebSocket) =====
+# ===== HEALTHCARE: Cadence Real-time Sync (External Service) =====
 cadence:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/mycurelabs/syncd
@@ -151,7 +148,7 @@ cadence:
       memory: 4Gi
 
   gateway:
-    hostname: "sync.stg.mycure.stitchtechsolutions.com"
+    hostname: ""
 
   livenessProbe:
     enabled: true
@@ -172,21 +169,20 @@ cadence:
     serviceName: mongodb
     database: hapihub
     username: root
+    replicaSet: rs0
 
-# ===== DATABASE: PostgreSQL =====
+# ===== DATABASE: PostgreSQL (External Service) =====
 postgresql:
-  enabled: true
+  enabled: false
 
-  # External Secrets configuration
   externalSecrets:
     enabled: true
-    remoteKey: medicard-staging-postgresql-password
+    remoteKey: medicard-production-postgresql-password
     generator:
-      generate: true
+      generate: false
       type: password
       description: PostgreSQL admin password
 
-  # Bitnami PostgreSQL subchart configuration
   postgresql:
     fullnameOverride: "postgresql"
     architecture: standalone
@@ -219,77 +215,64 @@ postgresql:
     podDisruptionBudget:
       enabled: false
 
-# ===== DATABASE: MongoDB (FerretDB with PostgreSQL backend) =====
+# ===== DATABASE: MongoDB (External Service) =====
 mongodb:
-  enabled: true
+  enabled: false
 
-  image:
-    repository: ghcr.io/ferretdb/ferretdb
-    tag: "2.7.0"
-    pullPolicy: IfNotPresent
+  externalSecrets:
+    enabled: true
+    rootPasswordKey: medicard-production-mongodb-root-password
+    replicaSetKey: medicard-production-mongodb-replica-set-key
 
-  replicaCount: 1
+  mongodb:
+    fullnameOverride: "mongodb"
+    architecture: replicaset
+    replicaCount: 1
 
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-  postgresql:
     image:
-      repository: ghcr.io/ferretdb/postgres-documentdb
-      tag: "17-0.107.0-ferretdb-2.7.0"
-      pullPolicy: IfNotPresent
+      repository: bitnamilegacy/mongodb
+      tag: 7.0.15-debian-12-r0
 
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
+    auth:
+      rootUser: root
+      existingSecret: mongodb
+
+    arbiter:
+      enabled: false
 
     persistence:
       enabled: true
       storageClass: ""
       size: 20Gi
 
-  auth:
-    username: "root"
-    database: "postgres"
-    existingSecret: "mongodb"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
 
-  externalSecrets:
-    enabled: true
-    secretStore: gcp-secretstore
-    refreshInterval: 1h
-    passwordKey: medicard-staging-mongodb-root-password
-
-  networkPolicy:
-    enabled: true
+    podDisruptionBudget:
+      enabled: false
 
 # ===== CACHE: Valkey (Redis) =====
 valkey:
   enabled: false
 
-# ===== STORAGE: MinIO Object Storage =====
+# ===== STORAGE: MinIO Object Storage (External Service) =====
 minio:
-  enabled: true
+  enabled: false
 
-  # External Secrets configuration
   externalSecrets:
     enabled: true
     secrets:
-      - remoteKey: medicard-staging-minio-root-password
+      - remoteKey: medicard-production-minio-root-password
         generator:
-          generate: true
+          generate: false
           type: password
           description: MinIO root password
 
-  # Bitnami MinIO subchart configuration
   minio:
     fullnameOverride: "minio"
 
@@ -349,21 +332,9 @@ minio:
       rateLimit:
         enabled: false
 
-# ===== EMAIL TESTING: Mailpit =====
+# ===== EMAIL TESTING: Mailpit (Disabled in Production) =====
 mailpit:
-  enabled: true
-
-  resources:
-    requests:
-      cpu: 25m
-      memory: 32Mi
-    limits:
-      cpu: 100m
-      memory: 64Mi
-
-  gateway:
-    enabled: false  # Internal only - no external access
-    hostname: ""
+  enabled: false
 
 # ===== BACKUP =====
 backup:

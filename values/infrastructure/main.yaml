@@ -7,7 +7,7 @@ argocd:
   # Git repository for GitOps
   # DEPLOYMENT-SPECIFIC: Override chart default (template points to monobaselabs/monobase-infra)
   repoURL: https://github.com/mycurelabs/monobase-infra-medicard.git
-  targetRevision: HEAD
+  targetRevision: production
 
   # ArgoCD Installation Configuration
   # Chart: https://github.com/argoproj/argo-helm
@@ -261,23 +261,17 @@ gateway:
       namespace: envoy-gateway-system
 
   # TLS/Certificate configuration - Per-app certificates
-  # DEPLOYMENT-SPECIFIC: Certificate hostnames for this deployment (staging only)
+  # DEPLOYMENT-SPECIFIC: Certificate hostnames for this deployment (production only)
   certificates:
-    - name: staging-hapihub-tls
-      hostname: api.stg.mycure.stitchtechsolutions.com
+    - name: production-hapihub-tls
+      hostname: api.mycure.stitchtechsolutions.com
       enabled: true
-    - name: staging-mycure-tls
-      hostname: cms.stg.mycure.stitchtechsolutions.com
+    - name: production-mycure-tls
+      hostname: cms.mycure.stitchtechsolutions.com
       enabled: true
-    - name: staging-minio-tls
-      hostname: storage.stg.mycure.stitchtechsolutions.com
+    - name: production-storage-tls
+      hostname: storage.mycure.stitchtechsolutions.com
       enabled: true
-    - name: staging-cadence-tls
-      hostname: sync.stg.mycure.stitchtechsolutions.com
-      enabled: true
-    - name: staging-mailpit-tls
-      hostname: mail.stg.mycure.stitchtechsolutions.com
-      enabled: false  # DNS record missing - enable after adding DNS
 
   # HTTP to HTTPS redirect
   # DEPLOYMENT-SPECIFIC: Override chart default (disabled due to HTTP-01 ACME challenge)
@@ -291,10 +285,10 @@ envoyProxyConfig:
   cloudProvider: azure
 
   # Azure AKS Configuration
-  # Staging cluster configuration
+  # Production cluster configuration
   azure:
     # Azure Public IP resource for static IP binding
-    publicIpName: "medicard-staging-gateway-ip"
+    publicIpName: "medicard-production-gateway-ip"
     resourceGroup: "mycurerg"
 
 # External Secrets - Secret management
