@@ -180,6 +180,7 @@ postgresql:
   # External Secrets configuration
   externalSecrets:
     enabled: true
+    secretStore: azure-secretstore
     remoteKey: medicard-staging-postgresql-password
     generator:
       generate: true
@@ -282,6 +283,7 @@ minio:
   # External Secrets configuration
   externalSecrets:
     enabled: true
+    secretStore: azure-secretstore
     secrets:
       - remoteKey: medicard-staging-minio-root-password
         generator:
