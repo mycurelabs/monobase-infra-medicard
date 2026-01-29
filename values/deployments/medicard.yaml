@@ -86,13 +86,14 @@ hapihub:
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
-    secrets:
-      - secretKey: GOOGLE_CLIENT_ID
-        remoteKey: medicard-staging-google-oauth-client-id
-      - secretKey: GOOGLE_CLIENT_SECRET
-        remoteKey: medicard-staging-google-oauth-client-secret
-      - secretKey: STRIPE_SECRET_KEY
-        remoteKey: medicard-staging-stripe-secret-key
+    secrets: []
+    # Optional secrets - add when available in Key Vault:
+    # - secretKey: GOOGLE_CLIENT_ID
+    #   remoteKey: medicard-staging-google-oauth-client-id
+    # - secretKey: GOOGLE_CLIENT_SECRET
+    #   remoteKey: medicard-staging-google-oauth-client-secret
+    # - secretKey: STRIPE_SECRET_KEY
+    #   remoteKey: medicard-staging-stripe-secret-key
 
   mongodb:
     serviceName: mongodb
