@@ -36,6 +36,13 @@ spec:
           {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          # URL-encode MONGODB_PASSWORD for safe use in connection URI
+          ENCODED_PWD=$(printf '%s' "$MONGODB_PASSWORD" | sed 's/%/%25/g;s/@/%40/g;s/!/%21/g;s/:/%3A/g;s/\//%2F/g;s/?/%3F/g;s/#/%23/g;s/\[/%5B/g;s/\]/%5D/g')
+          export MONGO_URI="mongodb://${MONGODB_USER}:${ENCODED_PWD}@${MONGODB_HOST}:${MONGODB_PORT}/${MONGODB_DATABASE}?authSource=admin"
+          exec syncd
         ports:
         - name: http
           containerPort: {{ .Values.service.targetPort }}
@@ -97,9 +104,8 @@ spec:
             secretKeyRef:
               name: mongodb
               key: mongodb-root-password
-        # MONGO_URI constructed from components using K8s variable expansion
-        - name: MONGO_URI
-          value: {{ include "cadence.mongodb.connectionUrl" . | quote }}
+        # MONGO_URI is constructed at runtime via entrypoint wrapper
+        # to URL-encode the password (handles special chars like @, !, etc.)
         # Service URLs from dependencies
         {{- if .Values.valkey.enabled }}
         - name: REDIS_URL
