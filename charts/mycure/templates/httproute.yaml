@@ -10,7 +10,7 @@ spec:
   parentRefs:
     - name: {{ include "mycure.gateway.name" . }}
       namespace: {{ include "mycure.gateway.namespace" . }}
-      sectionName: https
+      sectionName: {{ .Values.gateway.listener | default "https" }}
   hostnames:
     - {{ include "mycure.gateway.hostname" . }}
   rules:

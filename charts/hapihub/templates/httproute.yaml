@@ -10,7 +10,7 @@ spec:
   parentRefs:
     - name: {{ include "hapihub.gateway.name" . }}
       namespace: {{ include "hapihub.gateway.namespace" . }}
-      sectionName: https  # Only attach to HTTPS listener
+      sectionName: {{ .Values.gateway.listener | default "https" }}
   hostnames:
     - {{ include "hapihub.gateway.hostname" . }}
   rules:

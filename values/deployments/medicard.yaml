@@ -59,6 +59,7 @@ hapihub:
 
   gateway:
     hostname: "api.mycurex.medicardphils.com"
+    listener: http  # External gateway handles TLS
     timeouts:
       request: "60s"
 
@@ -130,6 +131,7 @@ mycure:
 
   gateway:
     hostname: "cms.mycurex.medicardphils.com"
+    listener: http  # External gateway handles TLS
 
   config:
     API_URL: "https://api.mycurex.medicardphils.com"
@@ -162,6 +164,7 @@ cadence:
 
   gateway:
     hostname: "sync.mycurex.medicardphils.com"
+    listener: http  # External gateway handles TLS
 
   livenessProbe:
     enabled: true
@@ -356,8 +359,9 @@ minio:
         type: RuntimeDefault
 
     gateway:
-      enabled: true
+      enabled: false  # Internal only
       hostname: ""
+      listener: http
       rateLimit:
         enabled: false
 

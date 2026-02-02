@@ -10,7 +10,7 @@ spec:
   parentRefs:
     - name: {{ include "minio.gateway.name" . }}
       namespace: {{ include "minio.gateway.namespace" . }}
-      sectionName: https  # Only attach to HTTPS listener
+      sectionName: {{ .Values.minio.gateway.listener | default "https" }}
   hostnames:
     - {{ include "minio.gateway.hostname" . }}
   rules:
