@@ -359,9 +359,9 @@ minio:
         type: RuntimeDefault
 
     gateway:
-      enabled: false  # Internal only
-      hostname: ""
-      listener: http
+      enabled: true
+      hostname: "storage.mycurex.medicardphils.com"
+      listener: http  # External gateway handles TLS
       rateLimit:
         enabled: false
 
