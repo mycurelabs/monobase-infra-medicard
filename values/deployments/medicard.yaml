@@ -1,9 +1,9 @@
 # MediCard Staging Configuration
 # Staging environment on Azure AKS
-# Domain: mycurex.medicardphils.com
+# Domain: *-mycurex-dev.medicardphils.com
 
 global:
-  domain: mycurex.medicardphils.com
+  domain: medicardphils.com
   namespace: medicard-staging
   environment: staging
 
@@ -58,7 +58,7 @@ hapihub:
       memory: 1Gi
 
   gateway:
-    hostname: "api.mycurex.medicardphils.com"
+    hostname: "api-mycurex-dev.medicardphils.com"
     listener: http  # External gateway handles TLS
     timeouts:
       request: "60s"
@@ -130,12 +130,12 @@ mycure:
       memory: 128Mi
 
   gateway:
-    hostname: "cms.mycurex.medicardphils.com"
+    hostname: "cms-mycurex-dev.medicardphils.com"
     listener: http  # External gateway handles TLS
 
   config:
-    API_URL: "https://api.mycurex.medicardphils.com"
-    HAPIHUB_URL: "https://api.mycurex.medicardphils.com"
+    API_URL: "https://api-mycurex-dev.medicardphils.com"
+    HAPIHUB_URL: "https://api-mycurex-dev.medicardphils.com"
 
   podDisruptionBudget:
     enabled: false
@@ -163,7 +163,7 @@ cadence:
       memory: 4Gi
 
   gateway:
-    hostname: "sync.mycurex.medicardphils.com"
+    hostname: "sync-mycurex-dev.medicardphils.com"
     listener: http  # External gateway handles TLS
 
   livenessProbe:
@@ -360,7 +360,7 @@ minio:
 
     gateway:
       enabled: true
-      hostname: "storage.mycurex.medicardphils.com"
+      hostname: "storage-mycurex-dev.medicardphils.com"
       listener: http  # External gateway handles TLS
       rateLimit:
         enabled: false
