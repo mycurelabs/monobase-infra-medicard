@@ -247,7 +247,7 @@ gateway:
   enabled: true
 
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
-  domain: mycurex.medicardphils.com
+  domain: medicardphils.com
 
   # Gateway listeners - TLS is handled externally
   gateway:
