@@ -301,10 +301,11 @@ envoyProxyConfig:
   enabled: true
   cloudProvider: azure
 
-  # Azure AKS Configuration - Internal LoadBalancer (no public IP needed)
+  # Azure AKS Configuration - Internal LoadBalancer with static private IP
   azure:
-    publicIpName: ""  # Not using public IP
+    publicIpName: ""
     resourceGroup: ""
+    ipv4Address: "172.23.32.5"
 
   # Internal LoadBalancer - provides private IP within Azure VNet
   # Client's gateway routes to this internal IP after TLS termination
