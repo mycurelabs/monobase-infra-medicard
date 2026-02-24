@@ -1,0 +1,16 @@
+apiVersion: v2
+name: hapihub-migrator
+description: HapiHub MongoDB to PostgreSQL migration tool with embedded dashboard
+type: application
+version: 1.0.0
+appVersion: "0.2.0"
+keywords:
+  - migration
+  - mongodb
+  - postgresql
+  - hapihub
+  - healthcare
+home: https://github.com/mycurelabs/monobase
+maintainers:
+  - name: MyCure
+    email: devops@mycure.md

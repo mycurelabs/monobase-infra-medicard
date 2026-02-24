@@ -381,6 +381,47 @@ mailpit:
     enabled: false  # Internal only - no external access
     hostname: ""
 
+# ===== MIGRATION: hapihub-migrator (MongoDB → PostgreSQL) =====
+hapihubMigrator:
+  enabled: true
+
+  image:
+    repository: ghcr.io/mycurelabs/hapihub-migrator
+    tag: "0.2.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  nodeSelector:
+    kubernetes.io/arch: amd64
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  gateway:
+    hostname: "migrate-mycurex-dev.medicardphils.com"
+    listener: http  # External gateway handles TLS
+
+  migration:
+    phase: "2"
+    dryRun: "false"
+    batchSize: "1000"
+    collectionConcurrency: "4"
+    existingSecret: "hapihub-migration-secrets"
+
+  postgresql:
+    host: "postgresql"
+    port: "5432"
+    database: "postgres"
+    username: "postgres"
+    existingSecret: "postgresql"
+    secretKey: "postgres-password"
+
 # ===== BACKUP =====
 backup:
   enabled: false

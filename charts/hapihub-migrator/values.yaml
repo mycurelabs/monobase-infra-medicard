@@ -1,0 +1,105 @@
+# Default values for hapihub-migrator chart
+
+global:
+  domain: example.com
+  namespace: example-prod
+  environment: production
+  gateway:
+    name: shared-gateway
+    namespace: gateway-system
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mycurelabs/hapihub-migrator
+  pullPolicy: IfNotPresent
+  tag: "0.2.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false  # Bun needs tmp write access
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations: {}
+
+gateway:
+  enabled: true
+  hostname: ""
+  listener: https
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /ready
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Migration configuration
+migration:
+  phase: "2"
+  dryRun: "false"
+  batchSize: "1000"
+  collectionConcurrency: "4"
+  existingSecret: "hapihub-migration-secrets"
+
+# PostgreSQL connection
+postgresql:
+  host: "postgresql"
+  port: "5432"
+  database: "postgres"
+  username: "postgres"
+  existingSecret: "postgresql"
+  secretKey: "postgres-password"
+
+networkPolicy:
+  enabled: true
+  gateway:
+    namespace: envoy-gateway-system
+    name: envoy-gateway
