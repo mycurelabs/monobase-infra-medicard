@@ -49,7 +49,7 @@ service:
   annotations: {}
 
 gateway:
-  enabled: true
+  enabled: false
   hostname: ""
   listener: https
 
@@ -89,7 +89,7 @@ migration:
   collectionConcurrency: "4"
   existingSecret: "hapihub-migration-secrets"
 
-# PostgreSQL connection
+# PostgreSQL connection (default: in-cluster, constructed from parts)
 postgresql:
   host: "postgresql"
   port: "5432"
@@ -97,6 +97,10 @@ postgresql:
   username: "postgres"
   existingSecret: "postgresql"
   secretKey: "postgres-password"
+  # Override with full URI from a secret (for external PG):
+  # uriSecret:
+  #   name: "hapihub-migration-secrets"
+  #   key: "pg-target-uri"
 
 networkPolicy:
   enabled: true

@@ -77,6 +77,13 @@ spec:
             secretKeyRef:
               name: {{ .Values.migration.existingSecret }}
               key: mongo-source-uri
+        {{- if .Values.postgresql.uriSecret }}
+        - name: PG_TARGET_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresql.uriSecret.name }}
+              key: {{ .Values.postgresql.uriSecret.key }}
+        {{- else }}
         - name: POSTGRESQL_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -84,6 +91,7 @@ spec:
               key: {{ .Values.postgresql.secretKey }}
         - name: PG_TARGET_URI
           value: "postgresql://{{ .Values.postgresql.username }}:$(POSTGRESQL_PASSWORD)@{{ include "hapihub-migrator.postgresql.host" . }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}"
+        {{- end }}
         - name: ENC_PERSONAL_DETAILS
           valueFrom:
             secretKeyRef:

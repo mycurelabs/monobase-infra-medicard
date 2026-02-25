@@ -38,7 +38,7 @@ spec:
         - protocol: UDP
           port: 53
 
-    # PostgreSQL (in-cluster)
+    # PostgreSQL (external Azure + in-cluster)
     - to:
         - namespaceSelector: {}
       ports:

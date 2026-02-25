@@ -404,6 +404,7 @@ hapihubMigrator:
       memory: 1Gi
 
   gateway:
+    enabled: true
     hostname: "migrate-mycurex-dev.medicardphils.com"
     listener: http  # External gateway handles TLS
 
@@ -415,12 +416,9 @@ hapihubMigrator:
     existingSecret: "hapihub-migration-secrets"
 
   postgresql:
-    host: "postgresql"
-    port: "5432"
-    database: "postgres"
-    username: "postgres"
-    existingSecret: "postgresql"
-    secretKey: "postgres-password"
+    uriSecret:
+      name: "hapihub-migration-secrets"
+      key: "pg-target-uri"
 
 # ===== BACKUP =====
 backup:
