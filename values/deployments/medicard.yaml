@@ -404,9 +404,7 @@ hapihubMigrator:
       memory: 1Gi
 
   gateway:
-    enabled: true
-    hostname: "migrate-mycurex-dev.medicardphils.com"
-    listener: http  # External gateway handles TLS
+    enabled: false
 
   migration:
     phase: "2"
