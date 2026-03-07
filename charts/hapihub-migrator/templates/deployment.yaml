@@ -72,6 +72,10 @@ spec:
           value: "true"
         - name: CONTINUE_ON_ERROR
           value: "true"
+        {{- if .Values.migration.migrationTimestamp }}
+        - name: MIGRATION_TIMESTAMP
+          value: {{ .Values.migration.migrationTimestamp | quote }}
+        {{- end }}
         - name: MONGO_SOURCE_URI
           valueFrom:
             secretKeyRef:
