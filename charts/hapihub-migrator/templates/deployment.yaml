@@ -110,6 +110,12 @@ spec:
               name: {{ .Values.migration.existingSecret }}
               key: enc-billing-invoices
               optional: true
+        - name: PG_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.migration.existingSecret }}
+              key: pg-encryption-key
+              optional: true
         volumeMounts:
         - name: tmp
           mountPath: /tmp
