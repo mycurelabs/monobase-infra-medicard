@@ -76,6 +76,10 @@ spec:
         - name: MIGRATION_TIMESTAMP
           value: {{ .Values.migration.migrationTimestamp | quote }}
         {{- end }}
+        {{- if .Values.migration.timestampStrategy }}
+        - name: TIMESTAMP_STRATEGY
+          value: {{ .Values.migration.timestampStrategy | quote }}
+        {{- end }}
         - name: MONGO_SOURCE_URI
           valueFrom:
             secretKeyRef:
