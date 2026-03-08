@@ -413,7 +413,7 @@ hapihubMigrator:
     enabled: false
 
   migration:
-    phase: ""
+    phase: "2"
     dryRun: "false"
     batchSize: "500"
     collectionConcurrency: "2"
