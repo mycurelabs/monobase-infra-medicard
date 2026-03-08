@@ -387,7 +387,7 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
-    tag: "2.1.1"
+    tag: "2.1.3"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
