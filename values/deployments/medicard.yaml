@@ -406,6 +406,12 @@ hapihubMigrator:
   gateway:
     enabled: false
 
+  livenessProbe:
+    enabled: false
+
+  readinessProbe:
+    enabled: false
+
   migration:
     phase: "1"
     dryRun: "false"
