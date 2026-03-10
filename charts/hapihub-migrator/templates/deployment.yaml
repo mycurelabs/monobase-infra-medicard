@@ -57,6 +57,8 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
         env:
+        - name: NODE_ENV
+          value: "production"
         - name: HOME
           value: "/tmp"
         - name: HTTP_PORT
