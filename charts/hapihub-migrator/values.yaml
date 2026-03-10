@@ -15,7 +15,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mycurelabs/hapihub-migrator
   pullPolicy: IfNotPresent
-  tag: "0.2.0"
+  tag: "2.0.0"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -72,7 +72,7 @@ livenessProbe:
 readinessProbe:
   enabled: true
   httpGet:
-    path: /ready
+    path: /health
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -83,11 +83,19 @@ affinity: {}
 
 # Migration configuration
 migration:
-  phase: "2"
-  dryRun: "false"
+  mode: "bulk"
   batchSize: "1000"
   collectionConcurrency: "4"
+  logLevel: "info"
+  maxErrorRate: "0.01"
   existingSecret: "hapihub-migration-secrets"
+
+# CDC (Change Data Capture) configuration
+cdc:
+  enabled: false
+  # changelogCollectionPrefix: "_changelog"
+  # replayBatchSize: "500"
+  # replayIntervalMs: "1000"
 
 # PostgreSQL connection (default: in-cluster, constructed from parts)
 postgresql:

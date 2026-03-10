@@ -61,17 +61,17 @@ spec:
           value: "/tmp"
         - name: HTTP_PORT
           value: {{ .Values.service.targetPort | quote }}
-        - name: PHASE
-          value: {{ .Values.migration.phase | quote }}
+        - name: MODE
+          value: {{ .Values.migration.mode | quote }}
         - name: BATCH_SIZE
           value: {{ .Values.migration.batchSize | default "1000" | quote }}
-        - name: DRY_RUN
-          value: {{ .Values.migration.dryRun | default "false" | quote }}
         - name: COLLECTION_CONCURRENCY
           value: {{ .Values.migration.collectionConcurrency | default "4" | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.migration.logLevel | default "info" | quote }}
+        - name: MAX_ERROR_RATE
+          value: {{ .Values.migration.maxErrorRate | default "0.01" | quote }}
         - name: RESUME_MIGRATION
-          value: "true"
-        - name: CONTINUE_ON_ERROR
           value: "true"
         {{- if .Values.migration.migrationTimestamp }}
         - name: MIGRATION_TIMESTAMP
@@ -125,6 +125,34 @@ spec:
               name: {{ .Values.migration.existingSecret }}
               key: pg-encryption-key
               optional: true
+        - name: ENC_BILLING_ITEMS
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.migration.existingSecret }}
+              key: enc-billing-items
+              optional: true
+        - name: ENC_BILLING_PAYMENTS
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.migration.existingSecret }}
+              key: enc-billing-payments
+              optional: true
+        {{- if .Values.cdc.enabled }}
+        {{- with .Values.cdc }}
+        {{- if .changelogCollectionPrefix }}
+        - name: CDC_CHANGELOG_COLLECTION_PREFIX
+          value: {{ .changelogCollectionPrefix | quote }}
+        {{- end }}
+        {{- if .replayBatchSize }}
+        - name: CDC_REPLAY_BATCH_SIZE
+          value: {{ .replayBatchSize | quote }}
+        {{- end }}
+        {{- if .replayIntervalMs }}
+        - name: CDC_REPLAY_INTERVAL_MS
+          value: {{ .replayIntervalMs | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp
