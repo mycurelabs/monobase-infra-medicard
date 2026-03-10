@@ -15,7 +15,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mycurelabs/hapihub-migrator
   pullPolicy: IfNotPresent
-  tag: "3.0.1"
+  tag: "3.0.2"
 
 imagePullSecrets: []
 nameOverride: ""
