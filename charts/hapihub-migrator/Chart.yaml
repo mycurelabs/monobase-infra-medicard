@@ -3,7 +3,7 @@ name: hapihub-migrator
 description: HapiHub MongoDB to PostgreSQL migration tool
 type: application
 version: 3.0.0
-appVersion: "3.0.2"
+appVersion: "3.0.3"
 keywords:
   - migration
   - mongodb
