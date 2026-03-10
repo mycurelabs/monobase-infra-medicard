@@ -415,7 +415,7 @@ hapihubMigrator:
   migration:
     mode: "bulk"
     batchSize: "500"
-    collectionConcurrency: "2"
+    collectionConcurrency: "1"
     existingSecret: "hapihub-migration-secrets"
     # migrationTimestamp disabled — FerretDB stores _id as strings and timestamps
     # as numbers, so none of the timestamp strategies work. Migrate all data.
