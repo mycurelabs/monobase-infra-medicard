@@ -75,6 +75,8 @@ spec:
           value: {{ .Values.migration.maxErrorRate | default "0.01" | quote }}
         - name: RESUME_MIGRATION
           value: "true"
+        - name: EXIT_ON_BULK_END
+          value: {{ .Values.migration.exitOnBulkEnd | default "false" | quote }}
         {{- if .Values.migration.migrationTimestamp }}
         - name: MIGRATION_TIMESTAMP
           value: {{ .Values.migration.migrationTimestamp | quote }}
