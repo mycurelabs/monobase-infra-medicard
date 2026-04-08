@@ -206,6 +206,10 @@ run = 'bun scripts/secrets.ts validate "$@"'
 description = "Resize StatefulSet PVCs without downtime"
 run = 'bun scripts/resize.ts "$@"'
 
+[tasks.monitor-migration]
+description = "Monitor hapihub-migrator and post status to Discord (reads DISCORD_WEBHOOK_URL from .env.local)"
+run = 'bun scripts/monitor-migration.ts "$@"'
+
 [tasks.teardown]
 description = "Destroy cluster infrastructure - REQUIRES CONFIRMATION"
 run = 'bun scripts/provision.ts --destroy "$@"'
