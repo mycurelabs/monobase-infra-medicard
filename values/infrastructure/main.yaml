@@ -390,6 +390,23 @@ velero:
 falco:
   enabled: false
 
+# Loki - Log aggregation (Loki + Promtail)
+loki:
+  enabled: false
+
+  # Loki version
+  version: "6.24.0"
+
+  # Storage
+  storageSize: "50Gi"
+
+  # Log retention period
+  retention: "30d"
+
+  # Promtail (log collector agent)
+  promtail:
+    version: "6.16.6"
+
 # Monitoring - Prometheus + Grafana stack
 monitoring:
   enabled: true

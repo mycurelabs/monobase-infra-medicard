@@ -1,0 +1,93 @@
+{{- if .Values.loki.enabled }}
+# ArgoCD Application: Promtail
+# Sync Wave 1 - After monitoring stack (wave 0)
+# Log collector agent that ships logs from all pods to Loki
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: promtail
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    chart: promtail
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: {{ .Values.loki.promtail.version | default "6.16.6" }}
+    helm:
+      releaseName: promtail
+      valuesObject:
+        # Loki endpoint
+        config:
+          clients:
+            - url: http://loki.monitoring.svc:3100/loki/api/v1/push
+
+          # Pipeline stages for structured log parsing
+          snippets:
+            pipelineStages:
+              # Parse JSON logs from application containers
+              - cri: {}
+              - json:
+                  expressions:
+                    level: level
+                    msg: msg
+                    timestamp: timestamp
+              - labels:
+                  level:
+              # Drop health check noise
+              - drop:
+                  source: msg
+                  expression: "^(GET|HEAD) /(livez|readyz|healthz)"
+
+        # DaemonSet runs on every node
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+        # Security context
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+
+        # Tolerations to run on all nodes
+        tolerations:
+          - effect: NoSchedule
+            key: node-role.kubernetes.io/master
+            operator: Exists
+          - effect: NoSchedule
+            key: node-role.kubernetes.io/control-plane
+            operator: Exists
+
+        # Service monitor for Prometheus
+        serviceMonitor:
+          enabled: false  # Enable when monitoring stack is deployed
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 5m
+{{- end }}

@@ -1,3 +1,6 @@
+# TPSA evidence (lives in separate repo: mycurelabs/tpsa-reqts-medicard)
+tpsa/
+
 # Helm artifacts
 *.tgz
 charts/*/charts/
