@@ -29,53 +29,53 @@ Technical architecture of the Monobase Infrastructure template.
 ```mermaid
 graph TB
     subgraph "Internet"
-        Users[👥 Users/Clients]
+        Users["Users/Clients"]
     end
     
     subgraph "Kubernetes Cluster"
         subgraph "gateway-system namespace"
-            Gateway[🌐 Envoy Gateway<br/>shared-gateway<br/>2 replicas]
+            Gateway["Envoy Gateway<br/>shared-gateway<br/>2 replicas"]
         end
         
         subgraph "client-a-prod namespace"
-            Monobase API1[⚕️ Monobase API<br/>3 replicas]
-            Monobase Account1[📱 Monobase Account<br/>2 replicas]
-            API Worker1[🔄 API Worker<br/>2 replicas]
-            PostgreSQL1[(🗄️ PostgreSQL<br/>3-node replica)]
-            MinIO1[(📦 MinIO<br/>6-node distributed)]
+            MonobaseAPI1["Monobase API<br/>3 replicas"]
+            MonobaseAccount1["Monobase Account<br/>2 replicas"]
+            APIWorker1["API Worker<br/>2 replicas"]
+            PostgreSQL1[("PostgreSQL<br/>3-node replica")]
+            MinIO1[("MinIO<br/>6-node distributed")]
         end
         
         subgraph "client-b-prod namespace"
-            Monobase API2[⚕️ Monobase API]
-            Apps2[📱 Apps...]
+            MonobaseAPI2["Monobase API"]
+            Apps2["Apps..."]
         end
         
         subgraph "Infrastructure"
-            cloud storage[💾 cloud storage Storage]
-            ArgoCD[🔄 ArgoCD GitOps]
-            ExtSecrets[🔐 External Secrets]
-            CertMgr[🔒 cert-manager]
-            Velero[💼 Velero Backups]
+            CloudStorage["Cloud Storage"]
+            ArgoCD["ArgoCD GitOps"]
+            ExtSecrets["External Secrets"]
+            CertMgr["cert-manager"]
+            Velero["Velero Backups"]
         end
     end
     
     subgraph "Cloud Provider KMS"
-        KMS[🔑 AWS Secrets Manager<br/>Azure Key Vault<br/>GCP Secret Manager]
+        KMS["AWS Secrets Manager<br/>Azure Key Vault<br/>GCP Secret Manager"]
     end
     
     Users -->|HTTPS| Gateway
-    Gateway -->|HTTPRoute| Monobase API1
-    Gateway -->|HTTPRoute| Monobase Account1
-    Gateway -->|HTTPRoute| Monobase API2
-    Monobase API1 --> PostgreSQL1
-    Monobase API1 --> MinIO1
-    API Worker1 --> PostgreSQL1
-    ArgoCD -.->|manages| Monobase API1
-    ArgoCD -.->|manages| Monobase Account1
+    Gateway -->|HTTPRoute| MonobaseAPI1
+    Gateway -->|HTTPRoute| MonobaseAccount1
+    Gateway -->|HTTPRoute| MonobaseAPI2
+    MonobaseAPI1 --> PostgreSQL1
+    MonobaseAPI1 --> MinIO1
+    APIWorker1 --> PostgreSQL1
+    ArgoCD -.->|manages| MonobaseAPI1
+    ArgoCD -.->|manages| MonobaseAccount1
     ExtSecrets -->|fetches| KMS
-    ExtSecrets -.->|injects| Monobase API1
+    ExtSecrets -.->|injects| MonobaseAPI1
     Velero -.->|backups| PostgreSQL1
-    cloud storage -.->|provides storage| PostgreSQL1
+    CloudStorage -.->|provides storage| PostgreSQL1
 ```
 
 ### Technology Stack
@@ -113,13 +113,13 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant U as 👤 User
-    participant DNS as 🌐 DNS
-    participant LB as ⚖️ LoadBalancer
-    participant GW as 🚪 Envoy Gateway
-    participant API as ⚕️ Monobase API
-    participant DB as 🗄️ PostgreSQL
-    participant S3 as 📦 MinIO/S3
+    participant U as User
+    participant DNS as DNS
+    participant LB as LoadBalancer
+    participant GW as Envoy Gateway
+    participant API as Monobase API
+    participant DB as PostgreSQL
+    participant S3 as MinIO/S3
     
     U->>DNS: api.client-a.com
     DNS-->>U: LoadBalancer IP
@@ -179,9 +179,9 @@ graph TB
     H1 --> DB1
     H2 --> DB2
     H3 --> DB3
-    NP -.->|isolates| client-a-prod
-    NP -.->|isolates| client-b-prod
-    NP -.->|isolates| client-c-staging
+    NP -.->|isolates| H1
+    NP -.->|isolates| H2
+    NP -.->|isolates| H3
     Storage -.->|provides PVCs| DB1
     Storage -.->|provides PVCs| DB2
     Storage -.->|provides PVCs| DB3
@@ -189,55 +189,36 @@ graph TB
 
 ### Component Diagram
 
-```
-                    Internet / DNS
-                          |
-                   [LoadBalancer IP]
-                          |
-        ┌─────────────────┴─────────────────┐
-        │    gateway-system namespace       │
-        │  ┌──────────────────────────────┐ │
-        │  │   Shared Envoy Gateway       │ │
-        │  │   - HTTPS listener (443)     │ │
-        │  │   - HA: 2 replicas           │ │
-        │  │   - Rate limiting            │ │
-        │  │   - Security headers         │ │
-        │  └──────────────────────────────┘ │
-        └────────────────┬──────────────────┘
-                         │
-        ┌────────────────┴──────────────────┐
-        │   myclient-prod namespace         │
-        │                                   │
-        │  ┌────────────────────────────┐  │
-        │  │ HTTPRoutes (per service)   │  │
-        │  │ - api.myclient.com         │  │
-        │  │ - app.myclient.com         │  │
-        │  │ - sync.myclient.com        │  │
-        │  └─────┬──────────────────────┘  │
-        │        │                          │
-        │  ┌─────┴──────┬────────┬────────┐│
-        │  │            │        │        ││
-        │ ┌▼──────┐ ┌──▼────┐ ┌▼──────┐ ││
-        │ │Monobase API│ │ API Worker │ │Account│ ││
-        │ │ App   │ │       │ │ App   │ ││
-        │ │2-3 rep│ │2 rep  │ │2 rep  │ ││
-        │ └───┬───┘ └───┬───┘ └───────┘ ││
-        │     │         │                ││
-        │  ┌──┴─────────┴──┐             ││
-        │  │               │             ││
-        │ ┌▼────────────┐ ┌▼─────────┐  ││
-        │ │  PostgreSQL    │ │  MinIO   │  ││
-        │ │  Replica Set│ │ Distrib. │  ││
-        │ │  3 nodes    │ │ 6 nodes  │  ││
-        │ └──────┬──────┘ └────┬─────┘  ││
-        │        │             │         ││
-        │  ┌─────┴─────────────┴──────┐ ││
-        │  │   cloud storage Storage       │ ││
-        │  │   - 3x replication       │ ││
-        │  │   - Snapshots            │ ││
-        │  │   - Encryption           │ ││
-        │  └──────────────────────────┘ ││
-        └────────────────────────────────┘
+```mermaid
+graph TB
+    Internet["Internet / DNS"]
+    LB["LoadBalancer IP"]
+
+    subgraph "gateway-system namespace"
+        EnvoyGW["Shared Envoy Gateway<br/>- HTTPS listener 443<br/>- HA: 2 replicas<br/>- Rate limiting<br/>- Security headers"]
+    end
+
+    subgraph "myclient-prod namespace"
+        Routes["HTTPRoutes per service<br/>- api.myclient.com<br/>- app.myclient.com<br/>- sync.myclient.com"]
+        MonoAPI["Monobase API App<br/>2-3 replicas"]
+        Worker["API Worker<br/>2 replicas"]
+        Account["Account App<br/>2 replicas"]
+        PG["PostgreSQL<br/>Replica Set<br/>3 nodes"]
+        MIO["MinIO<br/>Distributed<br/>6 nodes"]
+        CloudSt["Cloud Storage<br/>- 3x replication<br/>- Snapshots<br/>- Encryption"]
+    end
+
+    Internet --> LB
+    LB --> EnvoyGW
+    EnvoyGW --> Routes
+    Routes --> MonoAPI
+    Routes --> Worker
+    Routes --> Account
+    MonoAPI --> PG
+    MonoAPI --> MIO
+    Worker --> PG
+    PG --> CloudSt
+    MIO --> CloudSt
 ```
 
 ### Data Flow
@@ -277,25 +258,19 @@ Client → Monobase API (generates presigned URL)
 
 **Key Decision: 1 Gateway + Dynamic HTTPRoutes**
 
-```
-┌─────────────────────────────────────┐
-│  gateway-system namespace (shared) │
-│                                     │
-│  ┌───────────────────────────────┐ │
-│  │   Shared Gateway              │ │
-│  │   - Single HTTPS listener     │ │
-│  │   - Wildcard: *.myclient.com  │ │
-│  │   - HA: 2 Envoy replicas      │ │
-│  │   - Single LoadBalancer IP    │ │
-│  └───────────────────────────────┘ │
-└──────────────┬──────────────────────┘
-               │ References
-    ┌──────────┼──────────┐
-    │          │          │
-┌───▼────┐ ┌──▼─────┐ ┌─▼──────┐
-│Client A│ │Client B│ │Client C│
-│HTTPRtes│ │HTTPRtes│ │HTTPRtes│
-└────────┘ └────────┘ └────────┘
+```mermaid
+graph TB
+    subgraph "gateway-system namespace (shared)"
+        SharedGW["Shared Gateway<br/>- Single HTTPS listener<br/>- Wildcard: *.myclient.com<br/>- HA: 2 Envoy replicas<br/>- Single LoadBalancer IP"]
+    end
+
+    ClientA["Client A<br/>HTTPRoutes"]
+    ClientB["Client B<br/>HTTPRoutes"]
+    ClientC["Client C<br/>HTTPRoutes"]
+
+    SharedGW -->|References| ClientA
+    SharedGW -->|References| ClientB
+    SharedGW -->|References| ClientC
 ```
 
 **Benefits:**
@@ -326,31 +301,20 @@ spec:
 
 ### cloud storage Distributed Block Storage
 
-```
-┌─────────────────────────────────────────┐
-│         cloud storage Storage Cluster        │
-│                                         │
-│  ┌────────┐  ┌────────┐  ┌────────┐   │
-│  │ Node 1 │  │ Node 2 │  │ Node 3 │   │
-│  │        │  │        │  │        │   │
-│  │ Replica│  │ Replica│  │ Replica│   │
-│  │   A    │  │   A    │  │   A    │   │
-│  │ Replica│  │ Replica│  │ Replica│   │
-│  │   B    │  │   B    │  │   B    │   │
-│  └────────┘  └────────┘  └────────┘   │
-│                                         │
-│  Data replicated 3x across nodes       │
-│  Can lose 2 nodes without data loss    │
-└─────────────────────────────────────────┘
-         ▲
-         │ iSCSI / NVMe
-         │
-┌────────┴─────────┐
-│  StatefulSets    │
-│  - PostgreSQL       │
-│  - MinIO         │
-│  - Valkey     │
-└──────────────────┘
+```mermaid
+graph TB
+    subgraph "Cloud Storage Cluster"
+        Node1["Node 1<br/>Replica A<br/>Replica B"]
+        Node2["Node 2<br/>Replica A<br/>Replica B"]
+        Node3["Node 3<br/>Replica A<br/>Replica B"]
+        Info["Data replicated 3x across nodes<br/>Can lose 2 nodes without data loss"]
+    end
+
+    SSets["StatefulSets<br/>- PostgreSQL<br/>- MinIO<br/>- Valkey"]
+
+    SSets -->|"iSCSI / NVMe"| Node1
+    SSets -->|"iSCSI / NVMe"| Node2
+    SSets -->|"iSCSI / NVMe"| Node3
 ```
 
 **Features:**
@@ -363,24 +327,25 @@ spec:
 
 ### MinIO Distributed Storage (Optional)
 
-```
-┌─────────────────────────────────────────┐
-│     MinIO Erasure Coding (EC:2)         │
-│                                          │
-│  6 Nodes × 250Gi = 1.5TB raw            │
-│  4 data + 2 parity = ~1TB usable (66%)  │
-│                                          │
-│  ┌──────┐ ┌──────┐ ┌──────┐            │
-│  │Data 1│ │Data 2│ │Data 3│            │
-│  │250Gi │ │250Gi │ │250Gi │            │
-│  └──────┘ └──────┘ └──────┘            │
-│  ┌──────┐ ┌──────┐ ┌──────┐            │
-│  │Data 4│ │Parity│ │Parity│            │
-│  │250Gi │ │ 1    │ │  2   │            │
-│  └──────┘ └──────┘ └──────┘            │
-│                                          │
-│  Can lose 2 nodes without data loss     │
-└──────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "MinIO Erasure Coding EC:2<br/>6 Nodes x 250Gi = 1.5TB raw<br/>4 data + 2 parity = ~1TB usable 66%"
+        D1["Data 1<br/>250Gi"]
+        D2["Data 2<br/>250Gi"]
+        D3["Data 3<br/>250Gi"]
+        D4["Data 4<br/>250Gi"]
+        P1["Parity 1"]
+        P2["Parity 2"]
+    end
+
+    Tolerance["Can lose 2 nodes without data loss"]
+
+    D1 --- D2
+    D2 --- D3
+    D4 --- P1
+    P1 --- P2
+    D1 --- D4
+    D3 --- P2
 ```
 
 **Why MinIO:**
@@ -401,23 +366,18 @@ spec:
 
 ### Zero-Trust Network Model
 
-```
-Default: DENY ALL
-    ↓
-┌─────────────────────────────────┐
-│  All traffic blocked by default │
-└─────────────────────────────────┘
-    ↓
-Explicit ALLOW rules:
-    ↓
-┌─────────────────────────────────┐
-│ ✅ Gateway → Apps               │
-│ ✅ Apps → PostgreSQL               │
-│ ✅ Apps → Storage               │
-│ ✅ Apps → Internet (HTTPS)      │
-│ ❌ Cross-namespace (blocked)    │
-│ ❌ Direct pod access (blocked)  │
-└─────────────────────────────────┘
+```mermaid
+graph TB
+    DenyAll["Default: DENY ALL"]
+    Blocked["All traffic blocked by default"]
+    AllowRules["Explicit ALLOW rules"]
+    Allowed["ALLOW: Gateway to Apps<br/>ALLOW: Apps to PostgreSQL<br/>ALLOW: Apps to Storage<br/>ALLOW: Apps to Internet HTTPS"]
+    Denied["BLOCKED: Cross-namespace<br/>BLOCKED: Direct pod access"]
+
+    DenyAll --> Blocked
+    Blocked --> AllowRules
+    AllowRules --> Allowed
+    AllowRules --> Denied
 ```
 
 ### Defense in Depth
@@ -458,30 +418,14 @@ Explicit ALLOW rules:
 
 ### 3-Tier Backup Strategy
 
-```
-┌─────────────────────────────────────────┐
-│  Tier 1: Hourly Snapshots (Fast)        │
-│  - Storage: Local (cloud storage nodes)      │
-│  - Retention: 72 hours                  │
-│  - Recovery: ~5 minutes                 │
-│  - Use: Quick rollback, recent issues   │
-└─────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────┐
-│  Tier 2: Daily Backups (Medium)         │
-│  - Storage: S3 (off-cluster)            │
-│  - Retention: 30 days                   │
-│  - Recovery: ~1 hour                    │
-│  - Use: Last month recovery             │
-└─────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────┐
-│  Tier 3: Weekly Archive (Long-term)     │
-│  - Storage: S3 Glacier (cold)           │
-│  - Retention: 90+ days (HIPAA)          │
-│  - Recovery: ~4 hours                   │
-│  - Use: Compliance, disaster recovery   │
-└─────────────────────────────────────────┘
+```mermaid
+graph TB
+    T1["Tier 1: Hourly Snapshots (Fast)<br/>- Storage: Local cloud storage nodes<br/>- Retention: 72 hours<br/>- Recovery: ~5 minutes<br/>- Use: Quick rollback, recent issues"]
+    T2["Tier 2: Daily Backups (Medium)<br/>- Storage: S3 off-cluster<br/>- Retention: 30 days<br/>- Recovery: ~1 hour<br/>- Use: Last month recovery"]
+    T3["Tier 3: Weekly Archive (Long-term)<br/>- Storage: S3 Glacier cold<br/>- Retention: 90+ days HIPAA<br/>- Recovery: ~4 hours<br/>- Use: Compliance, disaster recovery"]
+
+    T1 --> T2
+    T2 --> T3
 ```
 
 **Backup Methods:**
@@ -506,24 +450,16 @@ Explicit ALLOW rules:
 
 ### Optional Monitoring Stack
 
-```
-┌─────────────────────────────────────────┐
-│           Applications                  │
-│  Monobase API, API Worker, Account             │
-│  /metrics endpoints                     │
-└──────────────┬──────────────────────────┘
-               │ scrape
-        ┌──────▼────────┐
-        │  Prometheus   │
-        │  - 15d retain │
-        │  - 50Gi PVC   │
-        │  - HA: 2 rep  │
-        └───┬───────┬───┘
-            │       │
-    ┌───────▼──┐ ┌─▼────────────┐
-    │ Grafana  │ │ Alertmanager │
-    │Dashboard │ │ Slack/PagerD │
-    └──────────┘ └──────────────┘
+```mermaid
+graph TB
+    Apps["Applications<br/>Monobase API, API Worker, Account<br/>/metrics endpoints"]
+    Prom["Prometheus<br/>- 15d retain<br/>- 50Gi PVC<br/>- HA: 2 replicas"]
+    Graf["Grafana<br/>Dashboards"]
+    Alert["Alertmanager<br/>Slack / PagerDuty"]
+
+    Apps -->|scrape| Prom
+    Prom --> Graf
+    Prom --> Alert
 ```
 
 **When to Enable:**
@@ -577,40 +513,30 @@ After: Pod C (v2), Pod D (v2) ← 100% v2, zero downtime
 
 ### Per-Client + Per-Environment Isolation
 
-```
-Cluster
-├── gateway-system (shared)
-│   └── shared-gateway (1 Gateway, HA: 2 replicas)
-│
-├── cloud-default-system (shared)
-│   └── cloud storage components
-│
-├── external-secrets-system (shared)
-│   └── External Secrets Operator
-│
-├── velero (shared)
-│   └── Velero backup controller
-│
-├── argocd (shared)
-│   └── ArgoCD components
-│
-├── monitoring (shared, optional)
-│   └── Prometheus + Grafana
-│
-├── client-a-prod
-│   ├── api, api-worker, account
-│   ├── postgresql, minio, valkey
-│   └── HTTPRoutes → shared-gateway
-│
-├── client-a-staging
-│   ├── api, account
-│   ├── postgresql
-│   └── HTTPRoutes → shared-gateway
-│
-└── client-b-prod
-    ├── api, api-worker, account
-    ├── postgresql, minio
-    └── HTTPRoutes → shared-gateway
+```mermaid
+graph TB
+    Cluster["Cluster"]
+
+    GWSys["gateway-system (shared)<br/>shared-gateway, 1 Gateway, HA: 2 replicas"]
+    CloudSys["cloud-default-system (shared)<br/>cloud storage components"]
+    ExtSec["external-secrets-system (shared)<br/>External Secrets Operator"]
+    VeleroNS["velero (shared)<br/>Velero backup controller"]
+    ArgoNS["argocd (shared)<br/>ArgoCD components"]
+    MonNS["monitoring (shared, optional)<br/>Prometheus + Grafana"]
+
+    ClientAProd["client-a-prod<br/>api, api-worker, account<br/>postgresql, minio, valkey<br/>HTTPRoutes to shared-gateway"]
+    ClientAStag["client-a-staging<br/>api, account<br/>postgresql<br/>HTTPRoutes to shared-gateway"]
+    ClientBProd["client-b-prod<br/>api, api-worker, account<br/>postgresql, minio<br/>HTTPRoutes to shared-gateway"]
+
+    Cluster --> GWSys
+    Cluster --> CloudSys
+    Cluster --> ExtSec
+    Cluster --> VeleroNS
+    Cluster --> ArgoNS
+    Cluster --> MonNS
+    Cluster --> ClientAProd
+    Cluster --> ClientAStag
+    Cluster --> ClientBProd
 ```
 
 **Benefits:**
@@ -626,29 +552,14 @@ Cluster
 
 ### Zone Model
 
-```
-┌─────────────────────────────────────────┐
-│  DMZ (Public Internet)                  │
-│  - Gateway LoadBalancer (public IP)     │
-│  - TLS termination                      │
-│  - Rate limiting                        │
-│  - DDoS protection                      │
-└──────────────┬──────────────────────────┘
-               │ HTTPS only
-┌──────────────▼──────────────────────────┐
-│  Application Zone                       │
-│  - Monobase API, API Worker, Account           │
-│  - NetworkPolicy: allow from Gateway    │
-│  - Pod Security: restricted             │
-└──────────────┬──────────────────────────┘
-               │ Authenticated connections
-┌──────────────▼──────────────────────────┐
-│  Data Zone                              │
-│  - PostgreSQL (TLS + auth)                 │
-│  - MinIO (IAM auth)                     │
-│  - NetworkPolicy: allow from apps only  │
-│  - Encryption at rest                   │
-└─────────────────────────────────────────┘
+```mermaid
+graph TB
+    DMZ["DMZ (Public Internet)<br/>- Gateway LoadBalancer public IP<br/>- TLS termination<br/>- Rate limiting<br/>- DDoS protection"]
+    AppZone["Application Zone<br/>- Monobase API, API Worker, Account<br/>- NetworkPolicy: allow from Gateway<br/>- Pod Security: restricted"]
+    DataZone["Data Zone<br/>- PostgreSQL TLS + auth<br/>- MinIO IAM auth<br/>- NetworkPolicy: allow from apps only<br/>- Encryption at rest"]
+
+    DMZ -->|"HTTPS only"| AppZone
+    AppZone -->|"Authenticated connections"| DataZone
 ```
 
 ---
