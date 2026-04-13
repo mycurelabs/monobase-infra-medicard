@@ -103,6 +103,7 @@ interface PodInfo {
   image: string;
   imageID: string;
   waitingReason?: string;
+  lastTerminationReason?: string;
   nodeName?: string;
 }
 
@@ -116,6 +117,7 @@ type StatusKind =
   | "done"
   | "healthy"
   | "ro-backoff"
+  | "oom-checkpoint"
   | "stalled"
   | "failing"
   | "unknown";
@@ -145,6 +147,7 @@ const STATUS_COLORS: Record<StatusKind, number> = {
   done: 0x2ecc71, // green
   healthy: 0x3498db, // blue
   "ro-backoff": 0xf1c40f, // yellow
+  "oom-checkpoint": 0xe67e22, // orange — expected brute-force behavior, not a failure
   stalled: 0xe67e22, // orange
   failing: 0xe74c3c, // red
   unknown: 0x95a5a6, // gray
@@ -154,6 +157,7 @@ const STATUS_EMOJI: Record<StatusKind, string> = {
   done: "🏁",
   healthy: "✅",
   "ro-backoff": "⚠️",
+  "oom-checkpoint": "🔄",
   stalled: "⚠️",
   failing: "🔴",
   unknown: "❔",
@@ -497,6 +501,9 @@ interface PodListItem {
         waiting?: { reason?: string; message?: string };
         terminated?: { reason?: string; exitCode?: number; finishedAt?: string };
       };
+      lastState?: {
+        terminated?: { reason?: string; exitCode?: number; finishedAt?: string };
+      };
       image?: string;
       imageID?: string;
     }>;
@@ -544,6 +551,7 @@ async function fetchMigratorPod(
     image: cs?.image ?? p.spec?.containers?.[0]?.image ?? "?",
     imageID: cs?.imageID ?? "",
     waitingReason: cs?.state?.waiting?.reason,
+    lastTerminationReason: p.status?.containerStatuses?.[0]?.lastState?.terminated?.reason,
     nodeName: p.spec?.nodeName,
   };
 }
@@ -591,7 +599,26 @@ function classify(input: ClassifyInput): Classification {
     };
   }
 
-  // CrashLoopBackOff or similar waiting reason = failing
+  // CrashLoopBackOff — distinguish OOMKilled (expected checkpoint behavior) from actual failures
+  if (pod.waitingReason === "CrashLoopBackOff" && pod.lastTerminationReason === "OOMKilled") {
+    return {
+      kind: "oom-checkpoint",
+      title: "Medicard · hapihub-migrator — OOM checkpoint cycle (expected)",
+      color: STATUS_COLORS["oom-checkpoint"],
+      description: [
+        "Pod is OOM-killed each cycle but making incremental progress via checkpointing.",
+        "This is the expected brute-force behavior for the final collection (`diagnostic-order-tests-history`).",
+        "No action needed — the migration will complete over repeated restart cycles.",
+      ].join("\n"),
+      fields: [
+        { name: "Pod", value: `${pod.name}\nOOMKilled, restarts: ${pod.restartCount}`, inline: false },
+        ...argoFields(argo),
+        ...imageField(pod),
+      ],
+    };
+  }
+
+  // CrashLoopBackOff or similar waiting reason (non-OOM) = actually failing
   if (pod.waitingReason === "CrashLoopBackOff" || pod.waitingReason === "ImagePullBackOff" || pod.waitingReason === "ErrImagePull") {
     return {
       kind: "failing",
