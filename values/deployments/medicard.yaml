@@ -401,7 +401,7 @@ hapihubMigrator:
       memory: 1Gi
     limits:
       cpu: "1"
-      memory: 16Gi
+      memory: 32Gi
 
   gateway:
     enabled: false
