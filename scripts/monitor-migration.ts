@@ -84,6 +84,31 @@ interface TerminalEvent {
   timeMs: number;
 }
 
+interface CompletedCollection {
+  collection: string;
+  table: string;
+  processed: number;
+}
+
+interface ResumingCollection {
+  collection: string;
+  table: string;
+  alreadyProcessed: number;
+}
+
+interface MigrationOverview {
+  /** Collections that logged "Already completed, skipping". */
+  completed: CompletedCollection[];
+  /** The collection that logged "Resuming" (actively being worked on from a checkpoint). */
+  resuming?: ResumingCollection;
+  /** Highest phase number seen in "Starting phase N" lines. */
+  maxPhase?: number;
+  /** Total unique collection names seen across all phase start lists. */
+  totalCollections: number;
+  /** Total rows across all completed collections. */
+  totalRowsCompleted: number;
+}
+
 interface LogState {
   latestProgress?: ProgressEvent;
   latestPhase?: PhaseEvent;
@@ -92,6 +117,12 @@ interface LogState {
   retryCount25006: number;
   progressCount: number;
   latestLineTimeMs?: number;
+  /** True if "Connected to PostgreSQL" was seen but no phase/progress lines followed. */
+  inSchemaInit: boolean;
+  /** True if "hapihub-migrator starting" was seen in the window. */
+  startupSeen: boolean;
+  /** Overall migration completion derived from startup scan logs. */
+  overview: MigrationOverview;
 }
 
 interface PodInfo {
@@ -116,6 +147,7 @@ interface ArgoAppInfo {
 type StatusKind =
   | "done"
   | "healthy"
+  | "schema-init"
   | "ro-backoff"
   | "oom-checkpoint"
   | "stalled"
@@ -146,6 +178,7 @@ interface DiscordEmbed {
 const STATUS_COLORS: Record<StatusKind, number> = {
   done: 0x2ecc71, // green
   healthy: 0x3498db, // blue
+  "schema-init": 0x9b59b6, // purple — expected, long-running, not a problem
   "ro-backoff": 0xf1c40f, // yellow
   "oom-checkpoint": 0xe67e22, // orange — expected brute-force behavior, not a failure
   stalled: 0xe67e22, // orange
@@ -156,6 +189,7 @@ const STATUS_COLORS: Record<StatusKind, number> = {
 const STATUS_EMOJI: Record<StatusKind, string> = {
   done: "🏁",
   healthy: "✅",
+  "schema-init": "🔧",
   "ro-backoff": "⚠️",
   "oom-checkpoint": "🔄",
   stalled: "⚠️",
@@ -331,13 +365,101 @@ function parseLines(raw: string): LogLine[] {
 }
 
 function extractState(lines: LogLine[]): LogState {
-  const state: LogState = { retryCount25006: 0, progressCount: 0 };
+  const overview: MigrationOverview = {
+    completed: [],
+    totalCollections: 0,
+    totalRowsCompleted: 0,
+  };
+  const allCollectionNames = new Set<string>();
+  const completedNames = new Set<string>();
+  let connectedSeen = false;
+  let startupSeen = false;
+  const state: LogState = { retryCount25006: 0, progressCount: 0, overview, inSchemaInit: false, startupSeen: false };
 
   for (const line of lines) {
     if (state.latestLineTimeMs === undefined || line.time > state.latestLineTimeMs) {
       state.latestLineTimeMs = line.time;
     }
 
+    // "Already completed, skipping" — emitted at startup for each done collection
+    if (
+      line.msg === "Already completed, skipping" &&
+      typeof line.collection === "string" &&
+      typeof line.processed === "number"
+    ) {
+      const name = line.collection as string;
+      if (!completedNames.has(name)) {
+        completedNames.add(name);
+        const entry: CompletedCollection = {
+          collection: name,
+          table: (line.table as string) ?? name,
+          processed: line.processed as number,
+        };
+        overview.completed.push(entry);
+        overview.totalRowsCompleted += entry.processed;
+      }
+      continue;
+    }
+
+    // "Resuming" — the collection being resumed from checkpoint
+    if (
+      line.msg === "Resuming" &&
+      typeof line.collection === "string" &&
+      typeof line.alreadyProcessed === "number"
+    ) {
+      overview.resuming = {
+        collection: line.collection as string,
+        table: (line.table as string) ?? (line.collection as string),
+        alreadyProcessed: line.alreadyProcessed as number,
+      };
+      continue;
+    }
+
+    // "Collection migration completed" — emitted when a collection finishes in the current run
+    if (
+      line.msg === "Collection migration completed" &&
+      typeof line.collection === "string" &&
+      typeof line.processed === "number"
+    ) {
+      const name = line.collection as string;
+      if (!completedNames.has(name)) {
+        completedNames.add(name);
+        const entry: CompletedCollection = {
+          collection: name,
+          table: (line.table as string) ?? name,
+          processed: line.processed as number,
+        };
+        overview.completed.push(entry);
+        overview.totalRowsCompleted += entry.processed;
+      }
+      continue;
+    }
+
+    // "Starting phase N" with a collections array — inventory for total count
+    if (
+      typeof line.msg === "string" &&
+      line.msg.startsWith("Starting phase") &&
+      typeof line.phase === "number"
+    ) {
+      const phase = line.phase as number;
+      if (overview.maxPhase === undefined || phase > overview.maxPhase) {
+        overview.maxPhase = phase;
+      }
+      // Collect all collection names from the phase list
+      if (Array.isArray(line.collections)) {
+        for (const c of line.collections as string[]) {
+          if (typeof c === "string") allCollectionNames.add(c);
+        }
+      }
+
+      const evt: PhaseEvent = { phase, timeMs: line.time };
+      if (!state.latestPhase || evt.timeMs > state.latestPhase.timeMs) {
+        state.latestPhase = evt;
+      }
+      continue;
+    }
+
+    // Progress lines
     if (line.msg === "Progress" && typeof line.collection === "string" && typeof line.processed === "number") {
       state.progressCount++;
       const evt: ProgressEvent = {
@@ -349,14 +471,6 @@ function extractState(lines: LogLine[]): LogState {
       };
       if (!state.latestProgress || evt.timeMs > state.latestProgress.timeMs) {
         state.latestProgress = evt;
-      }
-      continue;
-    }
-
-    if (typeof line.msg === "string" && line.msg.startsWith("Starting phase") && typeof line.phase === "number") {
-      const evt: PhaseEvent = { phase: line.phase as number, timeMs: line.time };
-      if (!state.latestPhase || evt.timeMs > state.latestPhase.timeMs) {
-        state.latestPhase = evt;
       }
       continue;
     }
@@ -402,7 +516,33 @@ function extractState(lines: LogLine[]): LogState {
       }
       continue;
     }
+
+    // Startup / connection markers
+    if (line.msg === "hapihub-migrator starting") {
+      startupSeen = true;
+      continue;
+    }
+    if (line.msg === "Connected to PostgreSQL") {
+      connectedSeen = true;
+      continue;
+    }
   }
+
+  // Also count the resuming and any actively-progressing collection in the total
+  if (overview.resuming) allCollectionNames.add(overview.resuming.collection);
+  for (const c of completedNames) allCollectionNames.add(c);
+
+  overview.totalCollections = allCollectionNames.size;
+
+  // Detect schema-init: connected to PG but no phase/progress/terminal/completed lines
+  // have appeared yet — the pod is in Drizzle schema migration (creating tables/indexes).
+  state.startupSeen = startupSeen;
+  state.inSchemaInit = connectedSeen &&
+    state.progressCount === 0 &&
+    !state.latestPhase &&
+    !state.latestTerminal &&
+    overview.completed.length === 0 &&
+    !overview.resuming;
 
   return state;
 }
@@ -595,7 +735,7 @@ function classify(input: ClassifyInput): Classification {
       title: "Medicard · hapihub-migrator — Unknown",
       color: STATUS_COLORS.unknown,
       description: "No pods found matching the selector.",
-      fields: argoFields(argo),
+      fields: [...overallProgressField(log), ...argoFields(argo)],
     };
   }
 
@@ -611,6 +751,7 @@ function classify(input: ClassifyInput): Classification {
         "No action needed — the migration will complete over repeated restart cycles.",
       ].join("\n"),
       fields: [
+        ...overallProgressField(log),
         { name: "Pod", value: `${pod.name}\nOOMKilled, restarts: ${pod.restartCount}`, inline: false },
         ...argoFields(argo),
         ...imageField(pod),
@@ -626,6 +767,7 @@ function classify(input: ClassifyInput): Classification {
       color: STATUS_COLORS.failing,
       description: describeFailure(pod, log),
       fields: [
+        ...overallProgressField(log),
         { name: "Pod", value: `${pod.name}\n${pod.waitingReason}, restarts: ${pod.restartCount}`, inline: false },
         ...argoFields(argo),
         ...imageField(pod),
@@ -641,6 +783,7 @@ function classify(input: ClassifyInput): Classification {
       color: STATUS_COLORS.failing,
       description: `Terminal error in logs:\n\`${log.latestTerminal.err ?? log.latestTerminal.msg}\``,
       fields: [
+        ...overallProgressField(log),
         { name: "Pod", value: `${pod.name}\nrestarts: ${pod.restartCount}`, inline: false },
         ...argoFields(argo),
         ...imageField(pod),
@@ -660,6 +803,8 @@ function classify(input: ClassifyInput): Classification {
         ? "Bulk migration reported complete with no errors."
         : `Bulk migration reported complete with ${errs} errors.`,
       fields: [
+        ...overallProgressField(log),
+        ...etaField(log, nowMs, pod),
         ...progressFields(log, nowMs),
         ...argoFields(argo),
         ...imageField(pod),
@@ -674,7 +819,7 @@ function classify(input: ClassifyInput): Classification {
       title: `Medicard · hapihub-migrator — Pod not ready (${pod.waitingReason ?? pod.phase})`,
       color: STATUS_COLORS.unknown,
       description: `Pod \`${pod.name}\` is not Ready.`,
-      fields: [...argoFields(argo), ...imageField(pod)],
+      fields: [...overallProgressField(log), ...argoFields(argo), ...imageField(pod)],
     };
   }
 
@@ -689,6 +834,8 @@ function classify(input: ClassifyInput): Classification {
         "See `reports/2026-03-12-azure-pg-recurring-readonly-storage-threshold.md` — this is the recurring incident.",
       ].join("\n"),
       fields: [
+        ...overallProgressField(log),
+        ...etaField(log, nowMs, pod),
         {
           name: "Retry state",
           value: [
@@ -709,6 +856,31 @@ function classify(input: ClassifyInput): Classification {
     };
   }
 
+  // Schema init — pod connected to PG but no migration work has started yet.
+  // Drizzle is applying schema migrations (CREATE TABLE, CREATE INDEX, etc.).
+  // This can take hours for GIN indexes on large tables like activity_logs.
+  if (log.inSchemaInit && pod.ready) {
+    const startedAt = pod.startedAt ? new Date(pod.startedAt).getTime() : undefined;
+    const initDuration = startedAt ? formatDurationMs(Math.max(0, nowMs - startedAt)) : "?";
+    return {
+      kind: "schema-init",
+      title: "Medicard · hapihub-migrator — Schema init (building indexes)",
+      color: STATUS_COLORS["schema-init"],
+      description: [
+        "Drizzle is applying schema migrations (creating tables/indexes).",
+        `Running for **${initDuration}**. GIN indexes on large tables (activity_logs: 84M+ rows, 1TB+) can take several hours.`,
+        "This is expected. Pod is healthy, no action needed.",
+      ].join("\n"),
+      fields: [
+        ...overallProgressField(log),
+        ...etaField(log, nowMs, pod),
+        ...podFields(pod, nowMs),
+        ...argoFields(argo),
+        ...imageField(pod),
+      ],
+    };
+  }
+
   // Pod ready but no recent progress and no retries = stalled
   const lastProgressAgeMs = log.latestProgress ? nowMs - log.latestProgress.timeMs : Infinity;
   if (log.progressCount === 0 || lastProgressAgeMs > 10 * 60 * 1000) {
@@ -720,6 +892,8 @@ function classify(input: ClassifyInput): Classification {
         ? `No \`Progress\` lines for ${formatDurationMs(lastProgressAgeMs)}.`
         : `No \`Progress\` lines in the last window.`,
       fields: [
+        ...overallProgressField(log),
+        ...etaField(log, nowMs, pod),
         ...progressFields(log, nowMs),
         ...podFields(pod, nowMs),
         ...argoFields(argo),
@@ -737,6 +911,8 @@ function classify(input: ClassifyInput): Classification {
       ? `Phase ${log.latestPhase.phase} in progress.`
       : "Migration in progress.",
     fields: [
+      ...overallProgressField(log),
+      ...etaField(log, nowMs, pod),
       ...progressFields(log, nowMs),
       ...podFields(pod, nowMs),
       ...argoFields(argo),
@@ -750,6 +926,70 @@ function describeFailure(pod: PodInfo, log: LogState): string {
     return `Pod is in ${pod.waitingReason}, and logs show: \`${log.latestTerminal.err ?? log.latestTerminal.msg}\``;
   }
   return `Pod is in ${pod.waitingReason} with ${pod.restartCount} restarts.`;
+}
+
+function etaField(log: LogState, nowMs: number, pod?: PodInfo): { name: string; value: string; inline?: boolean }[] {
+  const ov = log.overview;
+
+  // Schema init — ETA is unpredictable (depends on index build I/O)
+  if (log.inSchemaInit) {
+    const startedAt = pod?.startedAt ? new Date(pod.startedAt).getTime() : undefined;
+    const elapsed = startedAt ? formatDurationMs(Math.max(0, nowMs - startedAt)) : "?";
+    return [{
+      name: "⏱ ETA",
+      value: `Pending index creation (elapsed: ${elapsed})\nGIN indexes on TB-scale tables are I/O-bound and unpredictable.\nData migration starts after schema init completes.`,
+      inline: false,
+    }];
+  }
+
+  // Done
+  if (log.latestTerminal?.type === "complete") {
+    return [{ name: "⏱ ETA", value: "**Complete!**", inline: false }];
+  }
+
+  // If we have progress data on the current collection, compute rate-based ETA
+  if (log.latestProgress && log.latestProgress.totalEstimate && log.progressCount >= 2) {
+    const p = log.latestProgress;
+    const remaining = Math.max(0, (p.totalEstimate ?? 0) - p.processed);
+
+    // Estimate rate from pod uptime and processed count for the current collection
+    // (rough but useful — we don't have per-window rate tracking without state)
+    const startedAt = pod?.startedAt ? new Date(pod.startedAt).getTime() : undefined;
+    if (startedAt && p.processed > 0) {
+      const elapsedSec = Math.max(1, (nowMs - startedAt) / 1000);
+      // This is total processed / total time — crude but consistent
+      const rowsPerSec = p.processed / elapsedSec;
+      if (rowsPerSec > 0) {
+        const etaSec = remaining / rowsPerSec;
+        const etaStr = formatDurationMs(etaSec * 1000);
+        return [{
+          name: "⏱ ETA",
+          value: `~**${etaStr}** remaining (${formatInt(remaining)} rows @ ~${formatInt(Math.round(rowsPerSec))} rows/sec)`,
+          inline: false,
+        }];
+      }
+    }
+
+    // Fallback: just show remaining rows
+    return [{
+      name: "⏱ ETA",
+      value: `${formatInt(remaining)} rows remaining on \`${p.collection}\``,
+      inline: false,
+    }];
+  }
+
+  // Resuming from checkpoint — show remaining from overview
+  if (ov.resuming) {
+    // We don't know the total for this collection from the logs alone.
+    // Show what we know.
+    return [{
+      name: "⏱ ETA",
+      value: `Resuming \`${ov.resuming.collection}\` from ${formatInt(ov.resuming.alreadyProcessed)} rows`,
+      inline: false,
+    }];
+  }
+
+  return [];
 }
 
 function progressFields(log: LogState, nowMs: number): { name: string; value: string; inline?: boolean }[] {
@@ -779,6 +1019,60 @@ function podFields(pod: PodInfo, nowMs: number): { name: string; value: string; 
       inline: false,
     },
   ];
+}
+
+function overallProgressField(log: LogState): { name: string; value: string; inline?: boolean }[] {
+  const ov = log.overview;
+  const completed = ov.completed.length;
+  const total = ov.totalCollections;
+
+  if (completed === 0 && !ov.resuming && total === 0) {
+    return []; // no overview data available
+  }
+
+  const lines: string[] = [];
+
+  // Collections progress bar
+  const inProgress = ov.resuming ? 1 : (log.latestProgress ? 1 : 0);
+  const done = completed;
+  const denominator = total > 0 ? total : done + inProgress;
+  if (denominator > 0) {
+    const pct = Math.min(100, ((done / denominator) * 100));
+    const bar = progressBar(pct, 20);
+    lines.push(`${bar}  **${done}/${denominator}** collections (${pct.toFixed(0)}%)`);
+  }
+
+  // Phase info
+  if (ov.maxPhase !== undefined) {
+    lines.push(`Phase **${ov.maxPhase}**/5`);
+  }
+
+  // Total rows completed
+  if (ov.totalRowsCompleted > 0) {
+    lines.push(`${formatInt(ov.totalRowsCompleted)} rows migrated`);
+  }
+
+  // Currently working on
+  if (ov.resuming) {
+    lines.push(`Working on: **${ov.resuming.collection}** (resuming from ${formatInt(ov.resuming.alreadyProcessed)} rows)`);
+  } else if (log.latestProgress) {
+    const p = log.latestProgress;
+    const pct = formatProgressPct(p.processed, p.totalEstimate);
+    lines.push(
+      `Working on: **${p.collection}**${pct ? ` (${pct})` : ` (${formatInt(p.processed)} rows)`}`,
+    );
+  }
+
+  if (lines.length === 0) return [];
+
+  return [{ name: "Migration overall", value: lines.join("\n"), inline: false }];
+}
+
+/** Render a simple text progress bar: [████████░░░░] */
+function progressBar(pct: number, width: number): string {
+  const filled = Math.round((pct / 100) * width);
+  const empty = width - filled;
+  return `\`[${"█".repeat(filled)}${"░".repeat(empty)}]\``;
 }
 
 function argoFields(argo?: ArgoAppInfo): { name: string; value: string; inline?: boolean }[] {
@@ -870,11 +1164,45 @@ async function runOnce(args: Args, webhookUrl: string | undefined): Promise<void
     fetchMigratorPod(kc, args.namespace, args.selector),
   ]);
 
-  let log: LogState = { retryCount25006: 0, progressCount: 0 };
+  const emptyOverview: MigrationOverview = { completed: [], totalCollections: 0, totalRowsCompleted: 0 };
+  let log: LogState = { retryCount25006: 0, progressCount: 0, overview: emptyOverview };
   if (pod) {
     try {
-      const raw = await fetchRecentLogs(kc, args.namespace, pod.name, args.since);
-      log = extractState(parseLines(raw));
+      // Fetch two log slices:
+      // 1. Recent activity (--since window) for progress/retry/terminal classification
+      // 2. Full startup scan (--tail=2000, no --since) for overall migration completion
+      //    The migrator logs "Already completed, skipping" for every finished collection
+      //    on each restart, so the latest startup scan is always in the tail.
+      const [recentRaw, startupRaw] = await Promise.all([
+        fetchRecentLogs(kc, args.namespace, pod.name, args.since),
+        kubectlText([
+          ...kubectlBaseArgs(kc), "-n", args.namespace,
+          "logs", pod.name, "--tail=2000",
+        ]),
+      ]);
+
+      // Parse both, then merge: use the startup scan for the overview,
+      // the recent window for everything else.
+      const startupState = extractState(parseLines(startupRaw));
+      const recentState = extractState(parseLines(recentRaw));
+
+      log = {
+        ...recentState,
+        overview: startupState.overview, // startup scan has the full completion picture
+        // Schema-init is true if EITHER fetch detected it AND neither has progress.
+        // The startup fetch captures the "Connected to PostgreSQL" line even if it's
+        // outside the --since window; the recent fetch confirms no progress has started.
+        inSchemaInit: (startupState.inSchemaInit || recentState.inSchemaInit) &&
+          recentState.progressCount === 0 &&
+          !recentState.latestPhase &&
+          !recentState.latestTerminal,
+      };
+
+      // If the recent window also found overview data (e.g. pod just restarted),
+      // prefer whichever has more completed collections.
+      if (recentState.overview.completed.length > startupState.overview.completed.length) {
+        log.overview = recentState.overview;
+      }
     } catch (err) {
       // Logs failing is not fatal — classify without them.
       console.error(chalk.yellow(`warning: failed to fetch logs for ${pod.name}: ${err instanceof Error ? err.message : err}`));
