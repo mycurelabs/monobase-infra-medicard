@@ -85,7 +85,7 @@ hapihub:
     enabled: false
 
   externalSecrets:
-    enabled: false  # Using manually created hapihub-secrets for now
+    enabled: true  # Enables secret mounting in deployment; ESO resource skipped (secrets: [])
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
