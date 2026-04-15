@@ -106,6 +106,13 @@ hapihub:
   mongodb:
     enabled: false  # v11 is PG-only
 
+  minio:
+    enabled: true
+    defaultBuckets: "monobase-files"
+
+  valkey:
+    enabled: false
+
   mailpit:
     enabled: true
 
