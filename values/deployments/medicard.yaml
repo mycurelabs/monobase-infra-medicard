@@ -64,19 +64,12 @@ hapihub:
     snippetsPolicy:
       enabled: false
 
-  env:
-    - name: CLUSTER_INSTANCES
-      value: "1"
-    - name: BETTER_AUTH_RATE_LIMIT_ENABLED
-      value: "true"
-    - name: BETTER_AUTH_RATE_LIMIT_WINDOW
-      value: "60"
-    - name: BETTER_AUTH_RATE_LIMIT_MAX
-      value: "300"
-    - name: BETTER_AUTH_SESSION_COOKIE_CACHE_ENABLED
-      value: "false"
-
   config:
+    CLUSTER_INSTANCES: "1"
+    BETTER_AUTH_RATE_LIMIT_ENABLED: "true"
+    BETTER_AUTH_RATE_LIMIT_WINDOW: "60"
+    BETTER_AUTH_RATE_LIMIT_MAX: "300"
+    BETTER_AUTH_SESSION_COOKIE_CACHE_ENABLED: "false"
     CORS_ORIGINS: "https://cms-mycurex-dev.medicardphils.com"
 
   livenessProbe:
