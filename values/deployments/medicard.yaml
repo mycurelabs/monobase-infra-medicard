@@ -60,7 +60,7 @@ hapihub:
   gateway:
     hostnames:
       - "api-mycurex-dev.medicardphils.com"
-    listener: http  # External gateway handles TLS
+    sectionName: http  # External gateway handles TLS
     snippetsPolicy:
       enabled: false
 
