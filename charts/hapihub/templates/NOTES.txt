@@ -1,0 +1,77 @@
+{{- if .Values.enabled }}
+🎉 Monobase API has been deployed!
+
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+Release: {{ .Release.Name }}
+Namespace: {{ include "hapihub.namespace" . }}
+
+📋 Deployment Information:
+  - Replicas: {{ .Values.replicaCount }}
+  - Image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+  - Service: {{ include "hapihub.fullname" . }}:{{ .Values.service.port }}
+
+🌐 Access Information:
+{{- if .Values.gateway.enabled }}
+  Monobase API: https://{{ include "hapihub.gateway.hostname" . }}
+
+  Test the API:
+  curl https://{{ include "hapihub.gateway.hostname" . }}/health
+{{- else }}
+  Gateway is disabled. Use port-forward to access:
+  kubectl port-forward -n {{ include "hapihub.namespace" . }} svc/{{ include "hapihub.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+
+📊 Monitoring:
+{{- if .Values.serviceMonitor.enabled }}
+  ✅ ServiceMonitor enabled - Metrics available at /metrics
+{{- else }}
+  ⚠️  ServiceMonitor disabled - Enable for production monitoring
+{{- end }}
+
+🔐 Secrets:
+{{- if .Values.externalSecrets.enabled }}
+  ✅ External Secrets enabled - Syncing from {{ .Values.externalSecrets.secretStore | default (printf "%s-secretstore" (include "hapihub.namespace" .)) }}
+{{- else }}
+  ⚠️  External Secrets disabled - Ensure secrets are manually created
+{{- end }}
+
+📈 Autoscaling:
+{{- if .Values.autoscaling.enabled }}
+  ✅ HPA enabled - {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} replicas
+{{- else }}
+  ℹ️  HPA disabled - Fixed {{ .Values.replicaCount }} replicas
+{{- end }}
+
+🛡️  Security:
+{{- if and .Values.networkPolicy (default false .Values.networkPolicy.enabled) }}
+  ✅ NetworkPolicy enabled
+{{- else }}
+  ⚠️  NetworkPolicy disabled - Enable for production
+{{- end }}
+{{- if and .Values.podDisruptionBudget (default false .Values.podDisruptionBudget.enabled) }}
+  ✅ PodDisruptionBudget enabled (minAvailable: {{ .Values.podDisruptionBudget.minAvailable }})
+{{- else }}
+  ⚠️  PodDisruptionBudget disabled - Enable for HA
+{{- end }}
+
+🔍 Next Steps:
+  1. Verify pods are running:
+     kubectl get pods -n {{ include "hapihub.namespace" . }} -l app.kubernetes.io/name={{ include "hapihub.name" . }}
+
+  2. Check logs:
+     kubectl logs -n {{ include "hapihub.namespace" . }} -l app.kubernetes.io/name={{ include "hapihub.name" . }} --tail=50
+
+  3. Verify HTTPRoute:
+     kubectl get httproute -n {{ include "hapihub.namespace" . }}
+
+  4. Test health endpoint:
+     curl https://{{ include "hapihub.gateway.hostname" . }}/health
+
+📚 Documentation:
+  - Values Reference: docs/VALUES-REFERENCE.md
+  - Deployment Guide: docs/DEPLOYMENT.md
+  - Architecture: docs/ARCHITECTURE.md
+
+{{- else }}
+HapiHub is disabled (enabled: false)
+{{- end }}

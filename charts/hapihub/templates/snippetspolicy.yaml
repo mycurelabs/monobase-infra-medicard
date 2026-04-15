@@ -1,0 +1,21 @@
+{{- if and .Values.enabled .Values.gateway.enabled .Values.gateway.snippetsPolicy.enabled }}
+apiVersion: gateway.nginx.org/v1alpha1
+kind: SnippetsPolicy
+metadata:
+  # Name includes the release namespace so staging and production releases
+  # can co-exist in the same gateway namespace without an Argo
+  # SharedResourceWarning. NGF allows multiple SnippetsPolicies targeting
+  # the same Gateway.
+  name: {{ include "hapihub.fullname" . }}-{{ .Release.Namespace }}-proxy-timeout
+  namespace: {{ include "hapihub.gateway.namespace" . }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ include "hapihub.gateway.name" . }}
+  snippets:
+    - context: http.server.location
+      value: |
+        proxy_read_timeout {{ .Values.gateway.snippetsPolicy.proxyReadTimeout }};
+        client_max_body_size {{ .Values.gateway.snippetsPolicy.clientMaxBodySize }};
+{{- end }}

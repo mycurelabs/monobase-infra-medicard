@@ -10,14 +10,38 @@ spec:
   parentRefs:
     - name: {{ include "hapihub.gateway.name" . }}
       namespace: {{ include "hapihub.gateway.namespace" . }}
-      sectionName: {{ .Values.gateway.listener | default "https" }}
+      {{- if .Values.gateway.sectionName }}
+      sectionName: {{ .Values.gateway.sectionName }}
+      {{- else }}
+      sectionName: https  # Default: attach to HTTPS listener
+      {{- end }}
+    {{- range .Values.gateway.additionalSectionNames }}
+    - name: {{ include "hapihub.gateway.name" $ }}
+      namespace: {{ include "hapihub.gateway.namespace" $ }}
+      sectionName: {{ . }}
+    {{- end }}
   hostnames:
+    {{- if .Values.gateway.hostnames }}
+    {{- range .Values.gateway.hostnames }}
+    - {{ . }}
+    {{- end }}
+    {{- else }}
     - {{ include "hapihub.gateway.hostname" . }}
+    {{- end }}
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
+      {{- if .Values.gateway.timeouts }}
+      timeouts:
+        {{- if .Values.gateway.timeouts.request }}
+        request: {{ .Values.gateway.timeouts.request }}
+        {{- end }}
+        {{- if .Values.gateway.timeouts.backendRequest }}
+        backendRequest: {{ .Values.gateway.timeouts.backendRequest }}
+        {{- end }}
+      {{- end }}
       backendRefs:
         - name: {{ include "hapihub.fullname" . }}
           port: {{ .Values.service.port }}

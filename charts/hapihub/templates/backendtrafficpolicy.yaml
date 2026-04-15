@@ -1,0 +1,28 @@
+{{- if and .Values.enabled .Values.gateway.enabled .Values.gateway.backendTrafficPolicy.enabled }}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "hapihub.fullname" . }}
+  namespace: {{ include "hapihub.namespace" . }}
+  labels:
+    {{- include "hapihub.labels" . | nindent 4 }}
+spec:
+  # Target the HapiHub HTTPRoute
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ include "hapihub.fullname" . }}
+  
+  # Configure timeout settings
+  timeout:
+    http:
+      # Request timeout - total time for the entire request/response cycle
+      # Default Envoy Gateway timeout is 15s, which is too short for OAuth flows
+      # Setting to 60s provides sufficient time for OAuth callbacks
+      requestTimeout: {{ .Values.gateway.backendTrafficPolicy.timeout.requestTimeout | default "60s" }}
+      
+      {{- if .Values.gateway.backendTrafficPolicy.timeout.connectionIdleTimeout }}
+      # Connection idle timeout - how long to keep idle connections open
+      connectionIdleTimeout: {{ .Values.gateway.backendTrafficPolicy.timeout.connectionIdleTimeout }}
+      {{- end }}
+{{- end }}

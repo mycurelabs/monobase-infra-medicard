@@ -7,11 +7,16 @@ metadata:
   labels:
     {{- include "hapihub.labels" . | nindent 4 }}
 data:
+  {{- if .Values.config.NODE_ENV }}
   NODE_ENV: {{ .Values.config.NODE_ENV | quote }}
+  {{- end }}
+  {{- if .Values.config.LOG_LEVEL }}
   LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
-  PORT: {{ .Values.config.PORT | quote }}
+  {{- end }}
+  # NOTE: PORT removed - causes known issue in HapiHub app (port: NaN)
+  # App uses default port 7500 automatically
   {{- range $key, $value := .Values.config }}
-  {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
+  {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT" "DATABASE_WAIT_FOR_READY" "DATABASE_STARTUP_RETRIES" "DATABASE_STARTUP_RETRY_DELAY_MS")) }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
   {{- end }}

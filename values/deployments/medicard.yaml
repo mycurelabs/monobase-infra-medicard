@@ -41,7 +41,7 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    tag: "10.3.4"
+    tag: "11.2.9"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -51,17 +51,18 @@ hapihub:
 
   resources:
     requests:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 1000m
+      memory: 768Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: "2"
+      memory: 2Gi
 
   gateway:
-    hostname: "api-mycurex-dev.medicardphils.com"
+    hostnames:
+      - "api-mycurex-dev.medicardphils.com"
     listener: http  # External gateway handles TLS
-    timeouts:
-      request: "60s"
+    snippetsPolicy:
+      enabled: false
 
   env:
     - name: CLUSTER_INSTANCES
@@ -72,6 +73,11 @@ hapihub:
       value: "60"
     - name: BETTER_AUTH_RATE_LIMIT_MAX
       value: "300"
+    - name: BETTER_AUTH_SESSION_COOKIE_CACHE_ENABLED
+      value: "false"
+
+  config:
+    CORS_ORIGINS: "https://cms-mycurex-dev.medicardphils.com"
 
   livenessProbe:
     enabled: true
@@ -86,23 +92,19 @@ hapihub:
     enabled: false
 
   externalSecrets:
-    enabled: true
+    enabled: false  # Using manually created hapihub-secrets for now
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
     secrets: []
-    # Optional secrets - add when available in Key Vault:
-    # - secretKey: GOOGLE_CLIENT_ID
-    #   remoteKey: medicard-staging-google-oauth-client-id
-    # - secretKey: GOOGLE_CLIENT_SECRET
-    #   remoteKey: medicard-staging-google-oauth-client-secret
-    # - secretKey: STRIPE_SECRET_KEY
-    #   remoteKey: medicard-staging-stripe-secret-key
+
+  # v11: PostgreSQL-only (external Azure PG)
+  postgresql:
+    enabled: true
+    external: true  # DATABASE_URI from hapihub-secrets
 
   mongodb:
-    serviceName: mongodb
-    database: hapihub
-    username: root
+    enabled: false  # v11 is PG-only
 
   mailpit:
     enabled: true
@@ -113,7 +115,7 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.3.0"
+    tag: "10.4.2"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -141,8 +143,9 @@ mycure:
     enabled: false
 
 # ===== HEALTHCARE: Cadence Real-time Sync (WebSocket) =====
+# Disabled: matching preprod 2026-04-07 incident decision
 cadence:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/mycurelabs/syncd
@@ -187,8 +190,9 @@ cadence:
     username: root
 
 # ===== DATABASE: PostgreSQL =====
+# Disabled: hapihub 11.x connects to external Azure PG
 postgresql:
-  enabled: true
+  enabled: false
 
   # External Secrets configuration
   externalSecrets:
@@ -234,8 +238,9 @@ postgresql:
       enabled: false
 
 # ===== DATABASE: MongoDB (FerretDB with PostgreSQL backend) =====
+# Disabled: hapihub 11.x is PG-only
 mongodb:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/ferretdb/ferretdb

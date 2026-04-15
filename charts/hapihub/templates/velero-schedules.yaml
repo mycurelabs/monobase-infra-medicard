@@ -1,0 +1,142 @@
+{{- if and .Values.backup (default false .Values.backup.enabled) }}
+---
+# Velero Backup Storage Location (Per-Client)
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: default
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    client: {{ .Values.global.namespace }}
+spec:
+  provider: {{ .Values.backup.provider | default "aws" }}
+  objectStorage:
+    bucket: {{ .Values.backup.bucket | required "backup.bucket is required" }}
+    prefix: {{ .Values.global.namespace }}
+  config:
+    region: {{ .Values.backup.region | required "backup.region is required" }}
+    {{- if .Values.backup.s3Url }}
+    s3Url: {{ .Values.backup.s3Url }}
+    s3ForcePathStyle: "true"
+    {{- end }}
+    {{- if .Values.backup.encryption.enabled }}
+    serverSideEncryption: {{ .Values.backup.encryption.type | default "AES256" }}
+    {{- if .Values.backup.encryption.kmsKeyId }}
+    kmsKeyId: {{ .Values.backup.encryption.kmsKeyId }}
+    {{- end }}
+    {{- end }}
+  credential:
+    name: {{ .Values.backup.credentialSecret | default "velero-credentials" }}
+    key: cloud
+
+{{- if .Values.backup.schedules.hourly.enabled }}
+---
+# Hourly Backup Schedule (Tier 1 - Fast Recovery)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ .Values.global.namespace }}-hourly
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    backup-tier: tier1-fast
+    backup-frequency: hourly
+    client: {{ .Values.global.namespace }}
+spec:
+  schedule: {{ .Values.backup.schedules.hourly.schedule | default "0 * * * *" | quote }}
+  template:
+    includedNamespaces:
+      - {{ .Values.global.namespace }}
+    includeClusterResources: false
+    storageLocation: default
+    ttl: {{ .Values.backup.schedules.hourly.retention | default "72h" }}
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: true
+    labels:
+      backup-schedule: hourly
+      environment: {{ .Values.global.environment }}
+      client: {{ .Values.global.namespace }}
+      backup-type: incremental
+{{- end }}
+
+{{- if .Values.backup.schedules.daily.enabled }}
+---
+# Daily Full Backup Schedule (Tier 2 - Standard Recovery)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ .Values.global.namespace }}-daily
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    backup-tier: tier2-daily
+    backup-frequency: daily
+    client: {{ .Values.global.namespace }}
+spec:
+  schedule: {{ .Values.backup.schedules.daily.schedule | default "0 2 * * *" | quote }}
+  template:
+    includedNamespaces:
+      - {{ .Values.global.namespace }}
+    includeClusterResources: false
+    storageLocation: default
+    ttl: {{ .Values.backup.schedules.daily.retention | default "720h" }}
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: true
+    snapshotMoveData: true
+    orderedResources:
+      - customresourcedefinitions
+      - namespaces
+      - storageclasses
+      - persistentvolumes
+      - persistentvolumeclaims
+      - secrets
+      - configmaps
+      - serviceaccounts
+      - services
+      - deployments.apps
+      - statefulsets.apps
+      - jobs.batch
+      - cronjobs.batch
+    labels:
+      backup-schedule: daily
+      environment: {{ .Values.global.environment }}
+      client: {{ .Values.global.namespace }}
+      backup-type: full
+{{- end }}
+
+{{- if .Values.backup.schedules.weekly.enabled }}
+---
+# Weekly Archive Backup Schedule (Tier 3 - Long-term)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ .Values.global.namespace }}-weekly
+  namespace: velero
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    backup-tier: tier3-archive
+    backup-frequency: weekly
+    client: {{ .Values.global.namespace }}
+spec:
+  schedule: {{ .Values.backup.schedules.weekly.schedule | default "0 3 * * 0" | quote }}
+  template:
+    includedNamespaces:
+      - {{ .Values.global.namespace }}
+    includeClusterResources: false
+    storageLocation: {{ .Values.backup.schedules.weekly.storageLocation | default "default" }}
+    ttl: {{ .Values.backup.schedules.weekly.retention | default "2160h" }}
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: true
+    snapshotMoveData: true
+    labels:
+      backup-schedule: weekly
+      environment: {{ .Values.global.environment }}
+      client: {{ .Values.global.namespace }}
+      backup-type: archive
+{{- end }}
+{{- end }}

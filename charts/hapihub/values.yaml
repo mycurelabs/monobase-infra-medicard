@@ -1,6 +1,6 @@
 # Default values for HapiHub chart
 # This is a YAML-formatted file with sensible defaults
-# Override these values in deployment values files
+# Override these values in deployments/{env}/values.yaml
 
 # Global configuration (shared across charts)
 global:
@@ -24,6 +24,12 @@ image:
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
+
+# Better Auth - Authentication configuration
+betterAuth:
+  passkey:
+    rpName: "Acme"  # Relying Party name for WebAuthn/Passkeys (override per deployment)
+    rpId: "example.com"  # Relying Party ID - should match your domain (override per deployment)
 
 serviceAccount:
   create: true
@@ -59,14 +65,35 @@ gateway:
   parentRefs:
     - name: shared-gateway
       namespace: gateway-system
+  
+  # HTTPRoute timeout configuration
+  # Disabled by default — nginx-shared-gateway (NGF 2.4.1) doesn't
+  # implement spec.rules[].timeouts and reports UnsupportedField, which
+  # propagates as Degraded health in ArgoCD. Use snippetsPolicy below
+  # to apply proxy_read_timeout via NGF SnippetsPolicy instead.
+  # If you re-enable, set timeouts.request and/or timeouts.backendRequest.
+  timeouts: null
+  
+  # BackendTrafficPolicy configuration for connection settings
+  backendTrafficPolicy:
+    enabled: false  # Disabled - using HTTPRoute timeouts instead
+    timeout:
+      # Connection idle timeout - how long to keep idle connections open
+      # connectionIdleTimeout: "300s"
+
+  # NGINX Gateway SnippetsPolicy for proxy timeout tuning
+  snippetsPolicy:
+    enabled: false
+    proxyReadTimeout: "3600s"
+    clientMaxBodySize: "50m"
 
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    cpu: 1000m
+    cpu: 500m
     memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
 
 livenessProbe:
   enabled: true
@@ -91,13 +118,19 @@ readinessProbe:
 autoscaling:
   enabled: false
   minReplicas: 2
-  maxReplicas: 10
+  maxReplicas: 5
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 
 podDisruptionBudget:
-  enabled: false
+  enabled: true
   minAvailable: 1
+
+# Node pool scheduling (optional, disabled by default)
+# Inherits from global.nodePool if configured
+# nodePool:
+#   enabled: false     # Set to false to explicitly disable (overrides global)
+#   name: "staging"    # Override global node pool name
 
 nodeSelector: {}
 
@@ -118,83 +151,59 @@ affinity:
 
 # Application configuration (ConfigMap)
 config:
-  NODE_ENV: production
-  LOG_LEVEL: info
-  PORT: "7500"
-
-# MongoDB dependency configuration
-mongodb:
-  serviceName: "mongodb"
-  database: "hapihub"
-  username: "root"
-  replicaSet: "rs0"
-
-# Valkey (Redis-compatible cache) dependency configuration
-valkey:
-  enabled: true
-
-# MinIO storage dependency configuration
-minio:
-  enabled: false
-  bucket: "hapihub-files"
-  region: "us-east-1"
-
-# Mailpit dependency configuration (email testing for dev/staging)
-mailpit:
-  enabled: false
-
-# Feature flags for optional integrations
-stripe:
-  enabled: false
-
-s3:
-  enabled: false
-  bucket: ""
-  region: "us-east-1"
-  endpoint: ""
-
-oauth:
-  google:
-    enabled: false
-
-calcom:
-  enabled: false
+  # NOTE: PORT removed - causes known issue in HapiHub (port: NaN error)
+  # App automatically uses default port 7500
+  CLUSTER_INSTANCES: "1"  # Default to single instance to prevent OOM; override if needed
+  RUN_WORKERS: "true"
+  DB_SKIP_CREATE_INDEXES: "false"
+  DB_RECREATE_INDEX_ON_CONFLICT: "false"
+  # CORS - secure defaults (override per environment)
+  CORS_STRICT: "true"
+  CORS_ALLOW_LOCAL_NETWORK: "false"
+  CORS_ALLOW_TUNNELING: "false"
+  CORS_ALLOW_MOBILE_APPS: "true"
+  CORS_CREDENTIALS: "true"
+  # CORS_ORIGINS must be set per deployment
 
 # External Secrets configuration
 externalSecrets:
-  enabled: false  # Disabled by default, enable in deployment values
-  secretStore: "gcp-secretstore"  # ClusterSecretStore name
+  enabled: false
+  secretStore: ""
   refreshInterval: 1h
   secrets: []
   # Example secrets configuration:
   # secrets:
-  #   - secretKey: JWT_SECRET
-  #     remoteKey: mycure-prod-jwt-secret
-  #   - secretKey: JWT_REFRESH_SECRET
-  #     remoteKey: mycure-prod-jwt-refresh-secret
-  #   - secretKey: ENCRYPTION_KEY
-  #     remoteKey: mycure-prod-encryption-key
-  #   - secretKey: STRIPE_SECRET_KEY
-  #     remoteKey: mycure-prod-stripe-secret-key
-  #   - secretKey: STRIPE_WEBHOOK_SECRET
-  #     remoteKey: mycure-prod-stripe-webhook-secret
-  #   - secretKey: S3_ACCESS_KEY_ID
-  #     remoteKey: mycure-prod-s3-access-key
-  #   - secretKey: S3_SECRET_ACCESS_KEY
-  #     remoteKey: mycure-prod-s3-secret-key
   #   - secretKey: GOOGLE_CLIENT_ID
-  #     remoteKey: mycure-prod-google-client-id
+  #     remoteKey: mycure-staging-google-oauth-client-id
   #   - secretKey: GOOGLE_CLIENT_SECRET
-  #     remoteKey: mycure-prod-google-client-secret
-  #   - secretKey: CALCOM_API_KEY
-  #     remoteKey: mycure-prod-calcom-api-key
+  #     remoteKey: mycure-staging-google-oauth-client-secret
+  #   - secretKey: STRIPE_SECRET_KEY
+  #     remoteKey: mycure-staging-stripe-secret-key
 
-# Network Policy configuration
-networkPolicy:
-  enabled: true  # Enable by default for security
-  gateway:
-    namespace: envoy-gateway-system
-    name: envoy-gateway
+# MongoDB dependency configuration (deployed separately)
+mongodb:
+  enabled: true
+  # Use external/managed MongoDB (e.g., DigitalOcean, Atlas) via MONGO_URI from ExternalSecrets
+  external: false
+  # Service name - points to separate MongoDB release (only used when external: false)
+  serviceName: "mongodb"
+  database: "hapihub"
+  replicaSet: "rs0"
+  auth:
+    enabled: false
+    existingSecret: ""
+
+# PostgreSQL dependency configuration (v11+, deployed separately)
+postgresql:
+  enabled: false
+  # Use external/managed PostgreSQL via DATABASE_URI from ExternalSecrets
+  external: false
+  # Service name - points to separate PostgreSQL release (only used when external: false)
+  serviceName: "postgresql"
+  auth:
+    database: hapihub
+    username: postgres
+    existingSecret: ""
 
 # Service Monitor for Prometheus (if monitoring enabled)
 serviceMonitor:

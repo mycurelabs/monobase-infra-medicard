@@ -38,7 +38,7 @@ helm.sh/chart: {{ include "hapihub.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: mycure
+app.kubernetes.io/part-of: monobase
 {{- end }}
 
 {{/*
@@ -61,7 +61,7 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Gateway hostname - defaults to hapihub.{global.domain}
+Gateway hostname - defaults to api.{global.domain}
 */}}
 {{- define "hapihub.gateway.hostname" -}}
 {{- if .Values.gateway.hostname }}
@@ -93,21 +93,87 @@ Gateway parent reference namespace
 {{- end }}
 
 {{/*
+StorageClass name - auto-detects based on provider
+*/}}
+{{- define "hapihub.storageClass" -}}
+{{- if .Values.global.storage.className -}}
+{{- .Values.global.storage.className }}
+{{- else if eq .Values.global.storage.provider "longhorn" -}}
+longhorn
+{{- else if eq .Values.global.storage.provider "ebs-csi" -}}
+gp3
+{{- else if eq .Values.global.storage.provider "azure-disk" -}}
+managed-premium
+{{- else if eq .Values.global.storage.provider "gcp-pd" -}}
+pd-ssd
+{{- else if eq .Values.global.storage.provider "local-path" -}}
+local-path
+{{- else -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 MongoDB host - constructs hostname from MongoDB dependency
+Supports both standalone and replicaset architectures
 */}}
 {{- define "hapihub.mongodb.host" -}}
 {{- $serviceName := .Values.mongodb.serviceName | default "mongodb" -}}
+{{- $namespace := include "hapihub.namespace" . -}}
+{{- $architecture := .Values.mongodb.architecture | default "replicaset" -}}
+{{- if eq $architecture "replicaset" -}}
+{{- printf "%s-headless.%s.svc.cluster.local" $serviceName $namespace -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" $serviceName $namespace -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+MongoDB database name
+*/}}
+{{- define "hapihub.mongodb.database" -}}
+{{- .Values.mongodb.database | default "hapihub" -}}
+{{- end }}
+
+{{/*
+MongoDB username
+*/}}
+{{- define "hapihub.mongodb.username" -}}
+{{- .Values.mongodb.username | default "root" -}}
+{{- end }}
+
+{{/*
+MongoDB connection URL template (app must substitute password from MONGODB_PASSWORD env var)
+*/}}
+{{- define "hapihub.mongodb.connectionUrl" -}}
+{{- $host := include "hapihub.mongodb.host" . -}}
+{{- $database := include "hapihub.mongodb.database" . -}}
+{{- $username := include "hapihub.mongodb.username" . -}}
+{{- $replicaSet := .Values.mongodb.replicaSet | default "rs0" -}}
+mongodb://{{ $username }}@{{ $host }}:27017/{{ $database }}?replicaSet={{ $replicaSet }}
+{{- end }}
+
+{{/*
+PostgreSQL host - constructs hostname from PostgreSQL dependency
+Supports both standalone and replication architectures
+*/}}
+{{- define "hapihub.postgresql.host" -}}
+{{- $serviceName := .Values.postgresql.serviceName | default "postgresql" -}}
 {{- $namespace := include "hapihub.namespace" . -}}
 {{- printf "%s.%s.svc.cluster.local" $serviceName $namespace -}}
 {{- end }}
 
 {{/*
-MongoDB connection URL (without password - app substitutes from env var)
+PostgreSQL database name
 */}}
-{{- define "hapihub.mongodb.connectionUrl" -}}
-{{- $host := include "hapihub.mongodb.host" . -}}
-{{- $database := .Values.mongodb.database | default "hapihub" -}}
-mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@{{ $host }}:27017/{{ $database }}?authSource=admin
+{{- define "hapihub.postgresql.database" -}}
+{{- .Values.postgresql.auth.database | default "hapihub" -}}
+{{- end }}
+
+{{/*
+PostgreSQL username
+*/}}
+{{- define "hapihub.postgresql.username" -}}
+{{- .Values.postgresql.auth.username | default "postgres" -}}
 {{- end }}
 
 {{/*
@@ -115,8 +181,9 @@ Valkey (Redis) URL - constructs connection URL from Valkey dependency
 */}}
 {{- define "hapihub.valkey.url" -}}
 {{- if .Values.valkey.enabled -}}
+{{- $release := .Release.Name -}}
 {{- $namespace := include "hapihub.namespace" . -}}
-redis://valkey-master.{{ $namespace }}.svc.cluster.local:6379
+redis://{{ $release }}-valkey-master.{{ $namespace }}.svc.cluster.local:6379
 {{- end -}}
 {{- end }}
 
@@ -132,12 +199,21 @@ http://minio.{{ $namespace }}.svc.cluster.local:9000
 
 {{/*
 Mailpit SMTP Host - constructs hostname for Mailpit SMTP service
+Note: Mailpit is deployed as a standalone chart with instance name "mailpit"
 */}}
 {{- define "hapihub.mailpit.host" -}}
 {{- if .Values.mailpit.enabled -}}
 {{- $namespace := include "hapihub.namespace" . -}}
 mailpit-smtp.{{ $namespace }}.svc.cluster.local
 {{- end -}}
+{{- end }}
+
+{{/*
+External URL - constructs public HTTPS URL for HapiHub
+Used for OAuth callbacks, webhooks, email links, etc.
+*/}}
+{{- define "hapihub.externalUrl" -}}
+https://{{ include "hapihub.gateway.hostname" . }}
 {{- end }}
 
 {{/*

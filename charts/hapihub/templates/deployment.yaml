@@ -28,6 +28,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "hapihub.serviceAccountName" . }}
+      # Disable service environment variables to avoid port config conflicts
+      enableServiceLinks: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -70,30 +72,44 @@ spec:
         # Set HOME to /tmp to avoid permission denied errors when running as non-root
         - name: HOME
           value: "/tmp"
-        # Load from ConfigMap
+        # Load from ConfigMap (conditionally)
+        {{- if .Values.config.NODE_ENV }}
         - name: NODE_ENV
           valueFrom:
             configMapKeyRef:
               name: {{ include "hapihub.fullname" . }}
               key: NODE_ENV
+        {{- end }}
+        {{- if .Values.config.LOG_LEVEL }}
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:
               name: {{ include "hapihub.fullname" . }}
               key: LOG_LEVEL
-        - name: PORT
-          value: "{{ .Values.service.targetPort }}"
+        {{- end }}
+        # Port configuration - must be numeric (unquoted) for proper parsing
         - name: HAPIHUB_PORT
-          value: "{{ .Values.service.targetPort }}"
-        # MongoDB connection - individual components
+          value: {{ .Values.service.targetPort | quote }}
+        - name: PORT
+          value: {{ .Values.service.targetPort | quote }}
+        # MongoDB connection
+        {{- if .Values.mongodb.external }}
+        # External/managed MongoDB - MONGO_URI from ExternalSecrets
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: MONGO_URI
+        {{- else if .Values.mongodb.enabled }}
+        # In-cluster MongoDB - individual components
         - name: MONGODB_HOST
           value: {{ include "hapihub.mongodb.host" . | quote }}
         - name: MONGODB_PORT
           value: "27017"
         - name: MONGODB_DATABASE
-          value: {{ .Values.mongodb.database | default "hapihub" | quote }}
+          value: {{ include "hapihub.mongodb.database" . | quote }}
         - name: MONGODB_USER
-          value: {{ .Values.mongodb.username | default "root" | quote }}
+          value: {{ include "hapihub.mongodb.username" . | quote }}
         - name: MONGODB_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -101,7 +117,38 @@ spec:
               key: mongodb-root-password
         # MONGO_URI constructed from components using K8s variable expansion
         - name: MONGO_URI
-          value: {{ include "hapihub.mongodb.connectionUrl" . | quote }}
+          value: "mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGODB_DATABASE)?replicaSet={{ .Values.mongodb.replicaSet }}&directConnection=true&authSource=admin"
+        {{- end }}
+        # PostgreSQL connection (v11+)
+        {{- if .Values.postgresql.enabled }}
+        {{- if .Values.postgresql.external }}
+        # External PostgreSQL — DATABASE_URI from ExternalSecrets
+        {{- else }}
+        - name: POSTGRESQL_USER
+          value: {{ include "hapihub.postgresql.username" . | quote }}
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresql.auth.existingSecret | default "postgresql" }}
+              key: postgres-password
+        - name: DATABASE_URI
+          value: "postgres://$(POSTGRESQL_USER):$(POSTGRESQL_PASSWORD)@{{ include "hapihub.postgresql.host" . }}:5432/{{ include "hapihub.postgresql.database" . }}"
+        {{- end }}
+        - name: DATABASE_WAIT_FOR_READY
+          value: "true"
+        - name: DATABASE_STARTUP_RETRIES
+          value: "10"
+        - name: DATABASE_STARTUP_RETRY_DELAY_MS
+          value: "5000"
+        {{- end }}
+        # External URL - public HTTPS endpoint for callbacks, webhooks, etc.
+        - name: EXTERNAL_ADDRESS
+          value: {{ include "hapihub.externalUrl" . | quote }}
+        # Better Auth - Passkey/WebAuthn configuration
+        - name: BETTER_AUTH_PASSKEY_RP_NAME
+          value: {{ .Values.betterAuth.passkey.rpName | default "Acme" | quote }}
+        - name: BETTER_AUTH_PASSKEY_RP_ID
+          value: {{ .Values.betterAuth.passkey.rpId | default .Values.global.domain | quote }}
         # Service URLs from dependencies
         {{- if .Values.valkey.enabled }}
         - name: REDIS_URL
@@ -115,7 +162,7 @@ spec:
         - name: STORAGE_PUBLIC_ENDPOINT
           value: {{ include "hapihub.minio.url" . | quote }}
         - name: STORAGE_BUCKET
-          value: {{ .Values.minio.bucket | default "hapihub-files" | quote }}
+          value: {{ .Values.minio.defaultBuckets | default "hapihub-files" | quote }}
         - name: STORAGE_REGION
           value: {{ .Values.minio.region | default "us-east-1" | quote }}
         - name: STORAGE_ACCESS_KEY_ID
@@ -124,6 +171,29 @@ spec:
               name: minio
               key: root-user
         - name: STORAGE_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio
+              key: root-password
+        - name: STORAGE_UPLOAD_URL_EXPIRY
+          value: "300"
+        - name: STORAGE_DOWNLOAD_URL_EXPIRY
+          value: "900"
+        # v11 storage naming
+        - name: STORAGE_TYPE
+          value: "s3"
+        - name: STORAGE_S3_ENDPOINT
+          value: {{ include "hapihub.minio.url" . | quote }}
+        - name: STORAGE_S3_REGION
+          value: "us-east-1"
+        - name: STORAGE_S3_FORCE_PATH_STYLE
+          value: "true"
+        - name: STORAGE_S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio
+              key: root-user
+        - name: STORAGE_S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: minio
@@ -137,7 +207,7 @@ spec:
         - name: SMTP_SECURE
           value: "false"
         {{- end }}
-        # Load secrets from External Secrets Operator
+        # Load non-DB secrets from External Secrets Operator
         {{- if .Values.externalSecrets.enabled }}
         - name: JWT_SECRET
           valueFrom:
@@ -145,33 +215,6 @@ spec:
               name: {{ include "hapihub.fullname" . }}-secrets
               key: JWT_SECRET
               optional: true
-        - name: JWT_REFRESH_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "hapihub.fullname" . }}-secrets
-              key: JWT_REFRESH_SECRET
-              optional: true
-        - name: ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "hapihub.fullname" . }}-secrets
-              key: ENCRYPTION_KEY
-              optional: true
-        {{- if .Values.stripe.enabled }}
-        - name: STRIPE_SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "hapihub.fullname" . }}-secrets
-              key: STRIPE_SECRET_KEY
-              optional: true
-        - name: STRIPE_WEBHOOK_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "hapihub.fullname" . }}-secrets
-              key: STRIPE_WEBHOOK_SECRET
-              optional: true
-        {{- end }}
-        {{- if .Values.s3.enabled }}
         - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -184,16 +227,6 @@ spec:
               name: {{ include "hapihub.fullname" . }}-secrets
               key: S3_SECRET_ACCESS_KEY
               optional: true
-        - name: S3_BUCKET
-          value: {{ .Values.s3.bucket | quote }}
-        - name: S3_REGION
-          value: {{ .Values.s3.region | default "us-east-1" | quote }}
-        {{- if .Values.s3.endpoint }}
-        - name: S3_ENDPOINT
-          value: {{ .Values.s3.endpoint | quote }}
-        {{- end }}
-        {{- end }}
-        {{- if .Values.oauth.google.enabled }}
         - name: GOOGLE_CLIENT_ID
           valueFrom:
             secretKeyRef:
@@ -206,22 +239,156 @@ spec:
               name: {{ include "hapihub.fullname" . }}-secrets
               key: GOOGLE_CLIENT_SECRET
               optional: true
-        {{- end }}
-        {{- if .Values.calcom.enabled }}
-        - name: CALCOM_API_KEY
+        - name: STRIPE_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: {{ include "hapihub.fullname" . }}-secrets
-              key: CALCOM_API_KEY
+              key: STRIPE_SECRET_KEY
+              optional: true
+        # v11 auth secrets
+        - name: AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: AUTH_SECRET
+              optional: true
+        - name: BETTER_AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: BETTER_AUTH_SECRET
+              optional: true
+        # v11 database URI (from ExternalSecrets, for external PostgreSQL)
+        {{- if not (and .Values.postgresql.enabled (not .Values.postgresql.external)) }}
+        - name: DATABASE_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: DATABASE_URI
               optional: true
         {{- end }}
+        # Encryption keys
+        - name: ENC_BILLING_INVOICES
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENC_BILLING_INVOICES
+              optional: true
+        - name: ENC_BILLING_ITEMS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENC_BILLING_ITEMS
+              optional: true
+        - name: ENC_BILLING_PAYMENTS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENC_BILLING_PAYMENTS
+              optional: true
+        - name: ENC_MEDICAL_RECORDS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENC_MEDICAL_RECORDS
+              optional: true
+        - name: ENC_PERSONAL_DETAILS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: ENC_PERSONAL_DETAILS
+              optional: true
+        # MongoDB URI (fallback) - only if neither external nor in-cluster MongoDB configured
+        {{- if and (not .Values.mongodb.external) (not .Values.mongodb.enabled) }}
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: MONGO_URI
+              optional: true
+        {{- end }}
+        # JWT/Auth keys
+        - name: PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: PRIVATE_KEY
+              optional: true
+        - name: PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: PUBLIC_KEY
+              optional: true
+        # Storage configuration - only if not using local MinIO
+        {{- if not .Values.minio.enabled }}
+        - name: STORAGE_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_BUCKET
+              optional: true
+        - name: STORAGE_CLIENT_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_CLIENT_EMAIL
+              optional: true
+        - name: STORAGE_DIRECTORY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_DIRECTORY
+              optional: true
+        - name: STORAGE_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_PRIVATE_KEY
+              optional: true
+        - name: STORAGE_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_PROJECT_ID
+              optional: true
+        - name: STORAGE_TYPE
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STORAGE_TYPE
+              optional: true
+        {{- end }}
+        # Stripe configuration
+        - name: STRIPE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STRIPE_KEY
+              optional: true
+        - name: STRIPE_CHECKOUT_SUCCESS_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STRIPE_CHECKOUT_SUCCESS_URL
+              optional: true
+        - name: STRIPE_CHECKOUT_CANCEL_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "hapihub.fullname" . }}-secrets
+              key: STRIPE_CHECKOUT_CANCEL_URL
+              optional: true
         {{- end }}
         # Additional environment variables from config
         {{- range $key, $value := .Values.config }}
-        {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
+        {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT" "DATABASE_WAIT_FOR_READY" "DATABASE_STARTUP_RETRIES" "DATABASE_STARTUP_RETRY_DELAY_MS")) }}
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
+        {{- end }}
+        # Custom environment variables
+        {{- with .Values.env }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- $nodePool := include "hapihub.nodePool" . -}}
       {{- if or $nodePool .Values.nodeSelector }}
