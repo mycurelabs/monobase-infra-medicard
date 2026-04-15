@@ -414,7 +414,7 @@ hapihubMigrator:
 
   migration:
     mode: "bulk"
-    batchSize: "10"
+    batchSize: "500"
     collectionConcurrency: "1"
     exitOnBulkEnd: "true"
     existingSecret: "hapihub-migration-secrets"
