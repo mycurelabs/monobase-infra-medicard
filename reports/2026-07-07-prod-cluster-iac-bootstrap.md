@@ -91,12 +91,14 @@ The chart-side `authType: WorkloadIdentity` is correct; what's missing is the `a
 
 Either unblocks §3.2 immediately.
 
-### 3.2 Application pods waiting on ESO
+### 3.2 Application pods
 
-- `hapihub-6d64bc846-…` — `CreateContainerConfigError` with `Error: secret "minio" not found`. The hapihub Deployment references the `minio` Secret for its S3 client, which ESO can't create until §3.1 is resolved. `hapihub-secrets` (DATABASE_URI, AUTH_*, BETTER_AUTH_SECRET) is also expected to be sourced via ESO; once ESO works, both this pod and hapihub's own env come up.
-- `minio-74988b89d6-…` — `CreateContainerConfigError`, same root cause (`minio-credentials` ExternalSecret is `SecretSyncedError`, "SecretStore not ready").
-- `mycure-…` — `1/1 Running`, no external-secret dependency.
-- `hapihub-migrator` — `0/0 replicas` as designed. Present in cluster, will not run without a deliberate `--set hapihubMigrator.replicaCount=1` on a subsequent commit.
+**Update 2026-07-07 (post-bootstrap commit `5a2dd9b`):** MinIO was disabled per §3.6 below, which pruned the `medicard-prod-minio` Application and removed hapihub's dependency on the `minio` Secret. Current state:
+
+- `hapihub-6c59fcb99-…` — **1/1 Running, Healthy**. HTTP `/checkHealth` returns 200. *Caveat:* `hapihub-secrets` still doesn't exist, and every env var referencing it in the Deployment is `optional: true`, so `DATABASE_URI` is unset — hapihub **fell back to SQLite at `/tmp/.local/share/hapihub/hapihub.db`**. Pod logs: `Using SQLite database` → `➜ Database: sqlite`. Functionally detached from the real Azure PG until ESO delivers `hapihub-secrets`. This will look like a working deploy to an outside observer; it is not.
+- `mycure-…` — 1/1 Running. No secret deps.
+- `hapihub-migrator` — 0/0 replicas as designed. Present in cluster; requires an explicit `hapihubMigrator.replicaCount=1` commit to un-pause.
+- MinIO: gone (Deployment, StatefulSet, PVC, ExternalSecret all pruned by ArgoCD).
 
 ### 3.3 Envoy LoadBalancer internal IP allocated: `172.22.40.10`
 
@@ -113,11 +115,12 @@ Gateway `shared-gateway` in `gateway-system` is `Programmed=True`. HTTPRoutes ar
 NAMESPACE       NAME      HOSTNAMES
 medicard-prod   hapihub   ["api-mycurex.medicardphils.com"]
 medicard-prod   mycure    ["cms-mycurex.medicardphils.com"]
-medicard-prod   minio     ["storage-mycurex.medicardphils.com"]
 monitoring     grafana    ["grafana.medicardphils.com"]
 ```
 
-**Action needed from MediCard:** point the external Application Gateway / `mc-traffic-mgr-mpi-prd.trafficmanager.net` backends for the four hostnames above at `172.22.40.10` (HTTP :80). TLS is terminated on their side per the sheet (5.d.i).
+(The `minio`/`storage-mycurex` route existed at first bootstrap but was pruned in `5a2dd9b`. See §3.6.)
+
+**Action needed from MediCard:** point the external Application Gateway / `mc-traffic-mgr-mpi-prd.trafficmanager.net` backends for the three hostnames above at `172.22.40.10` (HTTP :80). TLS is terminated on their side per the sheet (5.d.i). The eventual s3proxy (§3.6) will re-introduce a `storage-mycurex` HTTPRoute — MediCard will re-add the AG rule at that point.
 
 **Recommended follow-up on our side:** once MediCard confirms `172.22.40.10` is fine to keep, pin it via `envoyProxyConfig.azure.ipv4Address: "172.22.40.10"` in `values/infrastructure/main.yaml` so it survives an LB recreate.
 
@@ -132,7 +135,7 @@ Values shared by MediCard for population under the naming convention our charts 
 | `medicard-prod-AUTH_SECRET` | Row 99: `[REDACTED-AUTH-SECRET]` | Value shared; MediCard to write. |
 | `medicard-prod-BETTER_AUTH_SECRET` | Row 5.c.viii, latest: "no entry found in prod app config" | **Not shared** — either MediCard provides an existing value (to keep session parity with the legacy VM), or we generate a fresh one (invalidates any pre-existing sessions, which is fine since prod is empty). |
 | `medicard-prod-mongo-source-uri` | Row 4.a: `mongodb+srv://stg_mycure_acct:[REDACTED-MONGO-PASSWORD]@mycure-stg-sh.q4trx.mongodb.net/admin?retryWrites=true&w=majority&appName=mycure-stg-sh` | Value shared; MediCard to write (only needed once we start the migrator). |
-| `medicard-prod-minio-root-password` | Auto-generate via ESO generator | Chart config already sets `generator.generate: true` — populated once §3.1 unblocks. |
+| ~~`medicard-prod-minio-root-password`~~ | Not needed | Superseded — MinIO disabled in commit `5a2dd9b`. See §3.6. |
 | `medicard-prod-pg-encryption-key` + per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | Row 5.c.i–vii: **disputed** — MediCard says "data is plain text", MYCURE DEV rebuttal says "encrypted, keys exist". | Unresolved. Only needed once migrator is enabled and touches encrypted rows. **Non-blocker for this deploy.** |
 
 None of §3.4 is blocking the deploy at IaC-shape level. §3.4 becomes blocking the moment hapihub is expected to serve traffic (needs DATABASE_URI + AUTH_SECRET) and the moment the migrator is un-paused (needs the source URI + encryption keys if data is in fact encrypted).
@@ -142,7 +145,27 @@ None of §3.4 is blocking the deploy at IaC-shape level. §3.4 becomes blocking 
 - ArgoCD Git repo credential currently uses a `mycurebot` fine-grained PAT. Ponytail-correct for bootstrap; migration to a GitHub App with rotation is a follow-up.
 - `grafana` HTTPRoute uses `grafana.medicardphils.com` — verify DNS on the MediCard side once (3.3) is wired; currently there is no DNS entry.
 - No monitoring dashboards were customised in this run. Prometheus + Grafana came up on default values from the chart.
-- No `hapihub-secrets` k8s Secret was manually created; the intent is for ESO to produce it once §3.1 is resolved. The pod's `CreateContainerConfigError` will self-heal.
+- No `hapihub-secrets` k8s Secret was manually created; the intent is for ESO to produce it once §3.1 is resolved. Until then hapihub silently runs on an in-pod SQLite (see §3.2 caveat).
+
+### 3.6 MinIO disabled — Azure Blob path (commit `5a2dd9b`)
+
+MediCard requested (Infrastructure Clarifications sheet row 5.c.xii) that object storage be **native Azure Blob**, not MinIO. Committed on `main`:
+
+- `values/deployments/medicard.yaml`: `minio.enabled: false` (top-level, prunes MinIO Deployment/StatefulSet/PVC/ExternalSecret/HTTPRoute) **and** `hapihub.minio.enabled: false` (strips all `STORAGE_*` env vars + the `minio` Secret refs from the hapihub Deployment).
+
+Effect on cluster:
+- `medicard-prod-minio` Application deleted by ArgoCD (`preserveResourcesOnDeletion=true` on the ApplicationSet, but this is a straight Application prune under the medicard-root, so resources go).
+- Hapihub Deployment restarted cleanly (`hapihub-6c59fcb99-…`) with no `STORAGE_S3_*` env → falls back to SQLite storage as noted in §3.2.
+
+**Follow-up on our side** (tracked in the prior "azure-storage" session): deploy **`s3proxy`** as a stateless Deployment inside `medicard-prod`. s3proxy exposes an S3 API to hapihub (so `hapihub.minio.enabled` can be re-enabled with `STORAGE_S3_ENDPOINT` pointed at the s3proxy Service) and delegates writes to Azure Blob via jclouds' `azureblob` provider. No PVC needed — durable bytes land in Blob.
+
+**Action needed from MediCard for s3proxy**:
+- Dedicated storage account name (e.g., `medicardprodstore`) — used as `JCLOUDS_IDENTITY`.
+- Storage account access key — the `JCLOUDS_CREDENTIAL` secret.
+- Blob container name (e.g., `monobase-files`) — either MediCard creates it or we create it after receiving the key.
+- Confirmation the storage account is on **standard commercial Azure** (not sovereign cloud) so we can rely on jclouds' default endpoint. If firewalled: allowlist the AKS cluster's egress IP (we send once the cluster's egress is known).
+
+Once received: one commit adds a `charts/s3proxy` deployment, a Secret pulled from KV (`medicard-prod-azureblob-key`), and flips `hapihub.minio.enabled: true` back on with `hapihub.minio.serviceName: s3proxy` overriding the URL helper. Zero change to hapihub's chart.
 
 ## 4. Summary — status per deployable
 
@@ -153,8 +176,8 @@ None of §3.4 is blocking the deploy at IaC-shape level. §3.4 becomes blocking 
 | external-secrets operator | ✅ Running | none |
 | ClusterSecretStore `azure-secretstore` | ❌ `InvalidProviderConfig` | §3.1 (MediCard MI + SA annotation) |
 | medicard-prod namespace + Kyverno/PSS baseline | ✅ | none |
-| hapihub | ⏳ `CreateContainerConfigError` | §3.1 (secrets can't sync) |
-| minio | ⏳ `CreateContainerConfigError` | §3.1 |
+| hapihub | ⚠️ 1/1 Running on **SQLite fallback** (Argo says Healthy but no `hapihub-secrets` → no DATABASE_URI) | §3.1 (ESO to deliver `hapihub-secrets` with DATABASE_URI + AUTH_*) |
+| object storage | ❌ MinIO removed (§3.6); s3proxy → Azure Blob pending | MediCard: storage account name + key + container (§3.6) |
 | mycure | ✅ 1/1 Running | none (no ext-secret dep) |
 | hapihub-migrator | ✅ Deployed, 0/0 replicas — **paused** | none (by design) |
 | monitoring stack | ✅ | none |
