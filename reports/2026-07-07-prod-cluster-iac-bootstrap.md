@@ -193,7 +193,7 @@ Contrary to the prior connectivity probes, **this run leaves everything in place
 - 1 GitHub PAT Secret in `argocd` for repository access.
 - All infrastructure Applications (envoy-gateway, external-secrets, monitoring, etc.).
 - All `medicard-*` child Applications and their reconciled resources.
-- No PVCs bound: PG is external, MongoDB Atlas is external, s3proxy is stateless. No stray data on any upstream DB.
+- One PVC bound (Loki, 50Gi on default Azure Disk StorageClass) plus one from Prometheus (50Gi). Application-side PG is external, MongoDB Atlas is external, s3proxy and velero are stateless. No stray data on any upstream DB.
 - No mutating calls were made against `mpiazeppgdb0003` or `mycure-stg-sh` MongoDB Atlas from this deploy — hapihub hasn't successfully reached either DB, migrator is at 0.
 
 ## Appendix — Environment fingerprint at time of test
