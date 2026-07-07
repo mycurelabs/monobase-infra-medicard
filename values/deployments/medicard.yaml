@@ -103,7 +103,11 @@ hapihub:
     enabled: false  # v11 is PG-only
 
   minio:
-    enabled: true
+    # ponytail: MinIO removed per MediCard clarifications sheet (row 5.c.xii).
+    # hapihub loses its storage backend; s3proxy → native Azure Blob is the
+    # follow-up (see prior "azure-storage" session plan). Blocks file
+    # uploads/downloads until s3proxy lands + storage account creds arrive.
+    enabled: false
     defaultBuckets: "monobase-files"
 
   valkey:
@@ -298,8 +302,12 @@ valkey:
   enabled: false
 
 # ===== STORAGE: MinIO Object Storage =====
+# ponytail: disabled — MediCard uses native Azure Blob (sheet row 5.c.xii).
+# Follow-up: deploy s3proxy pointing at their storage account so hapihub's
+# S3-only client stays talking S3 while bytes land in Blob. Waiting on
+# MediCard for storage account name + access key + container name.
 minio:
-  enabled: true
+  enabled: false
 
   # External Secrets configuration
   externalSecrets:
