@@ -319,6 +319,14 @@ envoyProxyConfig:
 externalSecrets:
   enabled: true
 
+  # Workload identity binding. Same UAMI as staging per sheet row 5.b.iii
+  # ("no separate MI"). Tenant same per 5.b.ii. Vault RBAC per 5.b.v.
+  # These flow to the external-secrets ServiceAccount so ESO can present
+  # an OIDC token to Azure AD.
+  serviceAccountAnnotations:
+    azure.workload.identity/client-id: d6b958ed-790e-4a8a-9ce0-10aa6c0776b8
+    azure.workload.identity/tenant-id: 31e62360-d307-45a7-932a-f774aa7a6288
+
   # ClusterSecretStore configurations
   # See charts/external-secrets-stores/README.md for detailed configuration
   # DEPLOYMENT-SPECIFIC: Azure Key Vault configuration

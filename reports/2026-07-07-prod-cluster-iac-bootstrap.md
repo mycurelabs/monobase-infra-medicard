@@ -45,21 +45,34 @@ monitoring-resources          main     Synced    Healthy
 
 ### 3.1 ExternalSecrets provider = InvalidProviderConfig (upstream blocker)
 
-`ClusterSecretStore/azure-secretstore` reconciler surfaces:
+Sheet row 5.b.iii ("No **separate** user-assigned mi for ExternalSecrets at this moment") and 5.b.v ("access policies naka set sya as role-based access(IAM)(RBAC)") point at reusing the same UAMI staging uses. Tenant confirmed same in 5.b.ii. Under that reading, the annotation is on our side, not something we're waiting on MediCard for. Applied and persisted in `values/infrastructure/main.yaml` under `externalSecrets.serviceAccountAnnotations`:
 
 ```
-could not get provider client:
-missing service account annotation: azure.workload.identity/client-id
+azure.workload.identity/client-id: d6b958ed-790e-4a8a-9ce0-10aa6c0776b8
+azure.workload.identity/tenant-id: 31e62360-d307-45a7-932a-f774aa7a6288
 ```
 
-The chart-side `authType: WorkloadIdentity` is configured; what the reconciler is missing is the identity's client-id (surfaced to ESO as the `azure.workload.identity/client-id` annotation on the `external-secrets` ServiceAccount). On staging that annotation carried UAMI client-id `d6b958ed-790e-4a8a-9ce0-10aa6c0776b8`; on prod no equivalent value has been supplied. Sheet row 5.b.iii reads "No separate user-assigned mi for ExternalSecrets at this moment", with rows 5.b.iv / 5.b.v pointing at the AKS kubelet MI or a `service.mycure` SA as alternatives — no client-id captured for any of those either.
+That progressed the reconciler past the "missing SA annotation" error and produced a new one from Azure AD:
 
-**What we need to unblock this** (implementation details on MediCard's side are out of scope):
-- The client-id of whichever Azure identity MediCard intends to use for cluster→KV reads on `kv-mpi-sea-p-mycurex01`.
-- Confirmation that identity has been granted read access to the vault's secrets (the mechanism MediCard uses to grant that access — RBAC role, access policy, whatever — is their call).
-- Confirmation of the auth model chosen: if the identity is a dedicated UAMI reached via workload-identity federation, we drop the client-id into the SA annotation as-is. If it's the AKS kubelet MI or another mode, we adjust the ClusterSecretStore's `authType` accordingly.
+```
+AADSTS700211: No matching federated identity record found for
+presented assertion issuer
+'https://southeastasia.oic.prod-aks.azure.com/31e62360-d307-45a7-932a-f774aa7a6288/b0819550-15a3-4697-9db7-44b573833866/'.
+```
 
-Once received, §3.2 unblocks.
+Reading:
+- Azure AD recognises the UAMI as an identity in the shared tenant.
+- The UAMI's Federated Identity Credential does NOT list the prod cluster's OIDC issuer (the URL Azure printed above).
+- Vault RBAC couldn't be tested yet — the request never reached the vault.
+
+**What we need to observe on MediCard's side to unblock this** (mechanism and process on their side are out of scope for us):
+
+- A federated identity credential on the UAMI whose issuer matches the URL Azure returned above, whose subject matches `system:serviceaccount:external-secrets-system:external-secrets`, and whose audience is `api://AzureADTokenExchange`. When that credential exists, this error goes away.
+- Once the federation error clears, we'll observe whether the next call succeeds or returns a vault-side "Forbidden" — the latter would indicate the UAMI still needs read access on `kv-mpi-sea-p-mycurex01` (5.b.v says RBAC is set; this would falsify that).
+
+If instead MediCard intended a different identity than the staging UAMI (i.e. our reading of 5.b.iii is wrong), the alternative is to swap the ClusterSecretStore's `authType` to the mode matching whatever identity they intend and revert the SA annotation. Either way, we're now one narrow, single-error question away from Ready.
+
+Once resolved, §3.2 unblocks.
 
 ### 3.2 Application pods
 
