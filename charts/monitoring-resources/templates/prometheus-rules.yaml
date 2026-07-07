@@ -92,7 +92,10 @@ spec:
             description: 'Pod has restarted {{ "{{" }} $value | humanize {{ "}}" }} times in 15 minutes'
 
         - alert: PodNotReady
-          expr: kube_pod_status_phase{phase!="Running"} == 1
+          # phase=~"Pending|Unknown" only: phase!="Running" also matched terminal
+          # Succeeded/Failed Job pods (kube_pod_status_phase==1 for their final phase),
+          # firing forever for every completed Job.
+          expr: kube_pod_status_phase{phase=~"Pending|Unknown"} == 1
           for: 15m
           labels:
             severity: warning
@@ -101,7 +104,13 @@ spec:
             description: 'Pod has been in {{ "{{" }} $labels.phase {{ "}}" }} state for 15+ minutes'
 
         - alert: PodHighMemory
-          expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+          # Guard the denominator: container_spec_memory_limit_bytes is 0 when no limit
+          # is set, so the old expr gave +Inf% and fired for every unlimited pod. The
+          # `> 0` filter keeps only containers that declare a memory limit; container!=""
+          # drops the pod/cgroup aggregate series. Stateful DBs (mongodb/postgresql/
+          # valkey) legitimately sit near their limit for page cache — excluded to cut
+          # noise. s3proxy is stateless (container name "s3proxy") and stays covered.
+          expr: (container_memory_usage_bytes{container!="",container!~"mongodb|postgresql|valkey"} / (container_spec_memory_limit_bytes{container!="",container!~"mongodb|postgresql|valkey"} > 0)) * 100 > 90
           for: 5m
           labels:
             severity: warning

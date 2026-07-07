@@ -39,11 +39,7 @@ monitoring:
     storage: 50Gi
   
   alertmanager:
-    enabled: true
-    config:
-      receivers:
-        - name: slack
-          slackWebhook: ""  # From External Secrets
+    enabled: true  # no receivers yet — alerts visible in the Alertmanager UI/API only
 ```
 
 ### Deploy
@@ -95,20 +91,17 @@ Password: (from External Secrets or initial secret)
 
 ## Alert Routing
 
-```yaml
-# Configure in values
-alertmanager:
-  config:
-    receivers:
-      - name: slack-critical
-        slack_configs:
-          - api_url: <webhook-url>
-            channel: '#alerts-critical'
-      
-      - name: pagerduty
-        pagerduty_configs:
-          - service_key: <pagerduty-key>
-```
+Alertmanager is deployed with the chart's default (null) route — alerts are
+visible in the Alertmanager UI/API but delivered nowhere. Wiring receivers
+(email/Slack/Discord) is a deliberate later change.
+
+## Managed Control Plane (AKS) Adjustments
+
+kube-proxy, kube-scheduler, and kube-controller-manager are not scrapeable on
+AKS, so their default rule groups and ServiceMonitors are disabled (their
+`*Down` alerts would fire forever on absent metrics). The kubelet
+ServiceMonitor gets a `metrics_path=/metrics` relabel to fix false
+`KubeletDown` alerts. See `charts/argocd-infrastructure/templates/monitoring.yaml`.
 
 ## Scaling Monitoring
 

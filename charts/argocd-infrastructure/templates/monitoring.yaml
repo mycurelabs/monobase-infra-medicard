@@ -47,11 +47,11 @@ spec:
           resources:
             requests:
               cpu: "100m"
-              memory: "400Mi"  # Increased from 200Mi - prevent OOM (actual usage: 324Mi)
+              memory: "512Mi"  # Bumped from 400Mi — was pegged at the 768Mi limit
             limits:
               cpu: "500m"
-              memory: "768Mi"  # Optimized from 1Gi (actual usage: 533Mi = 69%)
-          
+              memory: "1Gi"    # Bumped from 768Mi — Prometheus was at 100% and OOM-risk
+
           # Security context
           securityContext:
             enabled: true
@@ -59,10 +59,55 @@ spec:
             runAsUser: 1000
             fsGroup: 2000
 
-        # Alertmanager configuration (disabled for resource-constrained staging)
-        alertmanager:
+          # ponytail: managed control plane (AKS) — kube-proxy/scheduler/controller-manager
+          # are NOT scrapeable, so their *Down rules fire forever on absent() metrics.
+          # Disable those rule groups. Re-enable per-flag if deployed to self-managed k8s.
+          defaultRules:
+            create: true
+            rules:
+              kubeProxy: false
+              kubeControllerManager: false
+              kubeSchedulerAlerting: false
+              kubeSchedulerRecording: false
+
+        # ServiceMonitors for the non-scrapeable managed control-plane components.
+        kubeProxy:
           enabled: false
-        
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+
+        # KubeletDown fires falsely: the bundled rule matches up{job="kubelet",
+        # metrics_path="/metrics"} but this chart's kubelet ServiceMonitor emits no
+        # metrics_path label. Add it back so the rule sees the (healthy) targets.
+        kubelet:
+          serviceMonitor:
+            relabelings:
+              # action: replace is the CRD default; spelled out to avoid Argo drift.
+              - action: replace
+                targetLabel: metrics_path
+                replacement: /metrics
+
+        # Alertmanager — enabled with the chart's default (null) route only.
+        # No receivers wired yet: alerts are visible in the Alertmanager UI/API
+        # but delivered nowhere. Receiver config is a later, separate change.
+        alertmanager:
+          enabled: {{ .Values.monitoring.alertmanager.enabled }}
+          image:
+            repository: bitnamilegacy/alertmanager
+          persistence:
+            enabled: true
+            storageClass: ""
+            size: 2Gi
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+
         # Blackbox Exporter
         blackboxExporter:
           enabled: true

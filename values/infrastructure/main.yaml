@@ -442,17 +442,6 @@ monitoring:
         certManager:
           enabled: false
   
-  # Alertmanager configuration
+  # Alertmanager - enabled, no receivers yet (alerts visible in UI/API only)
   alertmanager:
     enabled: true
-    storageClass: ""  # Auto-detect
-    
-    # Slack notifications (optional)
-    slack:
-      webhookUrl: ""  # Set to Slack webhook URL for alerts
-    
-    # Email notifications (optional)
-    email:
-      smarthost: ""  # SMTP server (e.g., smtp.gmail.com:587)
-      from: ""  # From email address
-      to: ""  # To email address
