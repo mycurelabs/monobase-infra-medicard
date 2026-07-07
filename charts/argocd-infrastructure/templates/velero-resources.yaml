@@ -35,14 +35,22 @@ spec:
             bucket: {{ .Values.velero.gcp.bucket | required "velero.gcp.bucket is required" }}
             project: {{ .Values.velero.gcp.project | required "velero.gcp.project is required" }}
           {{- end }}
+          {{- if eq .Values.velero.provider "azure" }}
+          azure:
+            storageAccount: {{ .Values.velero.azure.storageAccount | required "velero.azure.storageAccount is required" }}
+            blobContainer: {{ .Values.velero.azure.blobContainer | required "velero.azure.blobContainer is required" }}
+          # velero-credentials is built from the SAME Key Vault entry s3proxy
+          # uses for its Azure Blob shared key — no dedicated backup identity.
+          externalSecrets:
+            secretStore: {{ .Values.velero.externalSecrets.secretStore | default "azure-secretstore" }}
+            azureBlobKeyKey: {{ .Values.velero.externalSecrets.azureBlobKeyKey | required "velero.externalSecrets.azureBlobKeyKey is required" }}
+          {{- end }}
           schedules:
             infrastructure:
               hourly:
-                enabled: {{ .Values.velero.schedules.infrastructure.hourly.enabled | default true }}
+                enabled: {{ .Values.velero.schedules.infrastructure.hourly.enabled | default false }}
               daily:
                 enabled: {{ .Values.velero.schedules.infrastructure.daily.enabled | default true }}
-              weekly:
-                enabled: {{ .Values.velero.schedules.infrastructure.weekly.enabled | default true }}
 
   destination:
     server: https://kubernetes.default.svc

@@ -45,11 +45,12 @@ spec:
     storageLocation: default
     ttl: {{ .Values.velero.schedules.infrastructure.daily.retention | default "720h" }}  # 30 days
     
-    # Volume snapshots
-    snapshotVolumes: true
+    # Volume data via FSB (kopia -> blob through node-agent). No native
+    # snapshots: azure runs storage-key auth with no VSL (see
+    # backup-locations.yaml), and snapshotMoveData is CSI-only.
+    snapshotVolumes: false
     defaultVolumesToFsBackup: true
-    snapshotMoveData: true
-    
+
     # Resource ordering for consistent backups
     orderedResources:
       - namespaces
@@ -101,7 +102,6 @@ spec:
       - ingressclasses
       - priorityclasses
       - runtimeclasses
-      - podsecuritypolicies
       - validatingwebhookconfigurations
       - mutatingwebhookconfigurations
     
@@ -150,9 +150,10 @@ spec:
     storageLocation: default
     ttl: {{ .Values.velero.schedules.infrastructure.hourly.retention | default "72h" }}  # 3 days
     
-    snapshotVolumes: true
+    # FSB only — see infrastructure-daily comment.
+    snapshotVolumes: false
     defaultVolumesToFsBackup: true
-    
+
     labels:
       backup-schedule: infrastructure-hourly
       backup-type: infrastructure

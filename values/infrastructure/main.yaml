@@ -394,8 +394,33 @@ kyverno:
   enabled: false
 
 # Velero - Backup and disaster recovery
+# Modernized to chart 12.0.1 (Velero 1.18); intentionally DISABLED until the
+# backup blob container exists — enable-time checklist in
+# docs/operations/VELERO-CONFIGURATION.md. Credentials reuse the SAME Key
+# Vault entry s3proxy uses (storage-account key), so no dedicated backup
+# identity is needed.
 velero:
   enabled: false
+  version: 12.0.1
+  provider: azure
+  azure:
+    # Same storage account s3proxy writes to. The name sits in KV as
+    # medicard-prod-azureblob-account-name (not secret) — fill at enable time.
+    storageAccount: ""
+    # Container for backups — create it in the account before enabling
+    # (velero does not auto-create containers).
+    blobContainer: "velero-backups"
+  externalSecrets:
+    secretStore: azure-secretstore
+    azureBlobKeyKey: medicard-prod-azureblob-account-key
+  schedules:
+    infrastructure:
+      hourly:
+        enabled: false
+      daily:
+        enabled: true
+  # Schedule crons/retention live in charts/velero-resources/values.yaml
+  # (daily 3AM/30d, cluster-weekly Sun 4AM/90d).
 
 # Falco - Runtime security monitoring
 falco:

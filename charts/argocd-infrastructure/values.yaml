@@ -44,7 +44,7 @@ kyverno:
 # Velero - Backup and disaster recovery
 velero:
   enabled: false
-  version: 7.1.4
+  version: 12.0.1  # chart 12.0.1 = Velero 1.18
   provider: gcp
   # Provider-specific config defined in deployment-specific values
 

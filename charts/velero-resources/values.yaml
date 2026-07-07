@@ -13,11 +13,18 @@ velero:
     region: us-east-1
     bucket: ""  # S3 bucket name (required)
 
-  # Azure configuration
+  # Azure configuration (storage-account-key auth — no identity;
+  # key synced from Key Vault via velero-credentials-externalsecret.yaml)
   azure:
-    resourceGroup: ""
     storageAccount: ""
     blobContainer: ""
+
+  # ExternalSecret source for velero-credentials (azure provider only).
+  # Reuses the SAME Key Vault entry s3proxy uses for its Azure Blob key.
+  externalSecrets:
+    secretStore: azure-secretstore
+    refreshInterval: 1h
+    azureBlobKeyKey: ""  # e.g. medicard-prod-azureblob-account-key (required)
 
   # GCP configuration
   gcp:
@@ -29,33 +36,18 @@ velero:
     bucket: ""
     region: nyc3
 
-  # Backup schedules
+  # Backup schedules (keys are what templates/schedules.yaml actually reads:
+  # `retention`, not the old dead `ttl` keys)
   schedules:
-    # Infrastructure backup (hourly)
     infrastructure:
       hourly:
-        enabled: true
+        enabled: false
         schedule: "0 * * * *"  # Every hour
-        ttl: 72h  # 3 days
+        retention: 72h  # 3 days
       daily:
         enabled: true
         schedule: "0 3 * * *"  # 3 AM daily
-        ttl: 168h  # 7 days
-      weekly:
-        enabled: true
-        schedule: "0 4 * * 0"  # 4 AM Sunday
-        ttl: 720h  # 30 days
-
-    # Application backups (per deployment)
-    applications:
-      daily:
-        enabled: true
-        schedule: "0 2 * * *"  # 2 AM daily
-        ttl: 168h  # 7 days
-      weekly:
-        enabled: true
-        schedule: "0 3 * * 0"  # 3 AM Sunday
-        ttl: 720h  # 30 days
+        retention: 720h  # 30 days
 
     # Cluster resources backup (weekly)
     cluster:

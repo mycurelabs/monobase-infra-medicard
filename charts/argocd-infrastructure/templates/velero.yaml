@@ -17,38 +17,70 @@ spec:
   source:
     chart: velero
     repoURL: https://vmware-tanzu.github.io/helm-charts
-    targetRevision: {{ .Values.velero.version | default "7.1.4" }}
+    targetRevision: {{ .Values.velero.version | default "12.0.1" }}
     helm:
       releaseName: velero
       values: |
+        upgradeCRDs: false
         configuration:
           defaultBackupTTL: 720h
-          defaultVolumesToFsBackup: true
+          # Volume data flows through FSB (kopia via node-agent), opted in
+          # per-schedule in charts/velero-resources — keep the cluster-wide
+          # default off so ad-hoc manifest-only backups stay cheap.
+          defaultVolumesToFsBackup: false
+          # BSL/VSL are managed by the velero-resources app (see
+          # charts/velero-resources/templates/backup-locations.yaml), not by
+          # the chart. Empty arrays prevent the chart from rendering its own
+          # placeholder BSL/VSL with null fields (which fails admission).
+          backupStorageLocation: []
+          volumeSnapshotLocation: []
         credentials:
+{{- if or (eq .Values.velero.provider "aws") (eq .Values.velero.provider "gcp") }}
+          # IRSA / GKE Workload Identity: ambient credentials, no secret.
+          useSecret: false
+{{- else }}
+          # azure: storage-account-key auth. velero-credentials is synced by
+          # an ExternalSecret from the SAME Key Vault entry s3proxy uses
+          # (medicard-prod-azureblob-account-key) — no dedicated identity.
+          # digitalocean/minio: holds real S3 keys.
           useSecret: true
           existingSecret: velero-credentials
+{{- end }}
         deployNodeAgent: true
         nodeAgent:
           podVolumePath: /var/lib/kubelet/pods
-          privileged: true
+          # Chart 12 renamed `privileged` -> `containerSecurityContext.privileged`.
+          # Required for FSB (file-system backup) to bind-mount pod volumes
+          # from /var/lib/kubelet/pods.
+          containerSecurityContext:
+            privileged: true
+          # Tolerate every taint so node-agent runs on every pool — FSB
+          # silently fails for pods scheduled on tainted nodes otherwise
+          # (mycure incident 2026-05-12).
+          tolerations:
+            - operator: Exists
         initContainers:
 {{- if or (eq .Values.velero.provider "aws") (eq .Values.velero.provider "digitalocean") (eq .Values.velero.provider "minio") }}
           - name: velero-plugin-for-aws
-            image: velero/velero-plugin-for-aws:v1.10.0
+            # Velero 1.18 pairs with velero-plugin-for-aws v1.14.x.
+            image: velero/velero-plugin-for-aws:v1.14.0
             volumeMounts:
               - mountPath: /target
                 name: plugins
 {{- end }}
 {{- if eq .Values.velero.provider "azure" }}
           - name: velero-plugin-for-microsoft-azure
-            image: velero/velero-plugin-for-microsoft-azure:v1.10.0
+            # Velero 1.18 pairs with velero-plugin-for-microsoft-azure v1.14.x
+            # (v1.14.1 release notes: "Bump Velero to v1.18.1").
+            image: velero/velero-plugin-for-microsoft-azure:v1.14.2
             volumeMounts:
               - mountPath: /target
                 name: plugins
 {{- end }}
 {{- if eq .Values.velero.provider "gcp" }}
           - name: velero-plugin-for-gcp
-            image: velero/velero-plugin-for-gcp:v1.10.0
+            # Same x.(N+4) pairing as aws/azure. Untested branch.
+            image: velero/velero-plugin-for-gcp:v1.14.0
             volumeMounts:
               - mountPath: /target
                 name: plugins
@@ -61,9 +93,13 @@ spec:
 {{- if eq .Values.velero.provider "aws" }}
               eks.amazonaws.com/role-arn: {{ .Values.velero.aws.roleArn }}
 {{- end }}
-{{- if eq .Values.velero.provider "azure" }}
-              azure.workload.identity/client-id: {{ .Values.velero.azure.identityClientId }}
-{{- end }}
+{{- /*
+  azure deliberately gets NO workload-identity annotation: auth is the
+  storage-account key from Key Vault (shared with s3proxy). If a dedicated
+  Azure identity is ever provisioned (needed for native disk snapshots),
+  add azure.workload.identity/client-id here + the azure.workload.identity/use
+  pod label, and restore the VSL in charts/velero-resources.
+*/ -}}
 {{- if eq .Values.velero.provider "gcp" }}
               iam.gke.io/gcp-service-account: {{ .Values.velero.gcp.serviceAccount }}
 {{- end }}

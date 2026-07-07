@@ -4,6 +4,38 @@
 > - [Backup & DR Strategy](../../docs/operations/BACKUP_DR.md)
 > - [Disaster Recovery Runbooks](../../docs/operations/DISASTER_RECOVERY_RUNBOOKS.md)
 
+## Current State — MediCard Prod (AKS)
+
+Velero is **disabled** (`velero.enabled: false` in `values/infrastructure/main.yaml`).
+The config is modernized to chart **12.0.1** (Velero 1.18, azure plugin v1.14.2)
+and pre-wired for the azure provider using **storage-account-key auth**: the
+`velero-credentials` secret is built by an ExternalSecret from the **same Key
+Vault entry s3proxy uses** (`medicard-prod-azureblob-account-key`) — no
+dedicated backup identity. Volume data goes through FSB (kopia → blob via
+node-agent); there is no VSL because native managed-disk snapshots need an
+Azure AD identity that key auth doesn't provide.
+
+**Enable-time checklist:**
+1. Create the backup container in the s3proxy storage account (velero does not
+   auto-create it): `az storage container create --name velero-backups --account-name <account>`
+   (the account key from KV also works for this).
+2. Fill `velero.azure.storageAccount` in `values/infrastructure/main.yaml`
+   (same account s3proxy writes to; the name is in KV as
+   `medicard-prod-azureblob-account-name` — not secret).
+3. Flip `velero.enabled: true` and merge. The velero pod may crashloop briefly
+   until the ExternalSecret syncs (wave-1); ArgoCD retries cover it.
+   Requires the ClusterSecretStore KV auth to be working (same blocker as
+   s3proxy/hapihub secrets).
+4. Verify: `kubectl -n velero get backupstoragelocation default` → Available,
+   then `velero backup create test --wait`.
+
+PSS note: the `velero` namespace is created by ArgoCD `CreateNamespace=true`
+with no pod-security labels, so the privileged node-agent DaemonSet is fine.
+If the namespace ever gets `restricted` labels, set
+`pod-security.kubernetes.io/enforce=privileged` on it first.
+
+---
+
 ## Overview
 
 Velero is the current backup implementation for the monobase infrastructure. It provides:
@@ -90,9 +122,14 @@ velero:
         retention: 2160h  # 90 days
 ```
 
-### Credentials (Only for DigitalOcean/MinIO)
+### Credentials
 
-**AWS/Azure/GCP**: No credentials needed - uses cloud-native auth (IRSA/Workload Identity)
+**AWS/GCP**: No credentials needed - uses cloud-native auth (IRSA/Workload Identity)
+
+**Azure**: storage-account-key auth. The `velero-credentials` secret (key
+`cloud`, dotenv format with `AZURE_STORAGE_ACCOUNT_ACCESS_KEY`) is synced
+automatically by `charts/velero-resources/templates/velero-credentials-externalsecret.yaml`
+from the same Key Vault entry s3proxy uses — nothing to create manually.
 
 **DigitalOcean/MinIO**: Create secret manually:
 ```bash
@@ -151,17 +188,24 @@ velero:
     # roleArn: auto-populated from terraform
 ```
 
-### Azure (Workload Identity)
+### Azure (storage-account key via Key Vault)
 ```yaml
 velero:
   enabled: true
   provider: azure
   azure:
-    resourceGroup: prod-cluster-rg
-    storageAccount: prodclustervelero
+    storageAccount: prodclustervelero  # same account s3proxy uses
     blobContainer: velero-backups
-    # identityClientId: auto-populated from terraform
+  externalSecrets:
+    secretStore: azure-secretstore
+    azureBlobKeyKey: medicard-prod-azureblob-account-key
 ```
+No Azure identity involved; FSB backs up volume data (no native disk
+snapshots). If a workload identity is ever provisioned, restore the VSL in
+`charts/velero-resources/templates/backup-locations.yaml` and add the
+`azure.workload.identity/client-id` SA annotation +
+`azure.workload.identity/use` pod label in
+`charts/argocd-infrastructure/templates/velero.yaml`.
 
 ### GCP (Workload Identity)
 ```yaml
@@ -216,14 +260,14 @@ kubectl get sa velero -n velero -o yaml | grep eks.amazonaws.com
 aws iam get-role --role-name my-cluster-velero
 ```
 
-**Azure Workload Identity:**
+**Azure (storage-account key):**
 ```bash
-# Verify service account annotation
-kubectl get sa velero -n velero -o yaml | grep azure.workload.identity
-# Should show client-id annotation
+# Verify the ExternalSecret synced the credentials
+kubectl get externalsecret velero-credentials -n velero
+kubectl get secret velero-credentials -n velero  # must have key `cloud`
 
-# Test permissions
-az role assignment list --assignee <identity-client-id>
+# If missing: check the ClusterSecretStore (same KV auth s3proxy depends on)
+kubectl get clustersecretstore azure-secretstore
 ```
 
 **GCP Workload Identity:**

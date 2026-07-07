@@ -42,7 +42,11 @@ spec:
 {{- end }}
 
 {{- if eq .Values.velero.provider "azure" }}
-# Azure Blob Storage Backup Location
+# Azure Blob Storage Backup Location — storage-account-key auth.
+# The key comes from the velero-credentials secret (synced from the SAME Key
+# Vault entry s3proxy uses, see velero-credentials-externalsecret.yaml);
+# storageAccountKeyEnvVar names the variable the plugin reads from that
+# credentials file. No Azure identity involved.
 apiVersion: velero.io/v1
 kind: BackupStorageLocation
 metadata:
@@ -58,28 +62,15 @@ spec:
     bucket: {{ .Values.velero.azure.blobContainer | required "velero.azure.blobContainer is required when provider=azure" }}
     prefix: infrastructure
   config:
-    resourceGroup: {{ .Values.velero.azure.resourceGroup | required "velero.azure.resourceGroup is required" }}
     storageAccount: {{ .Values.velero.azure.storageAccount | required "velero.azure.storageAccount is required" }}
-    # Workload Identity authentication - no credential secret needed
+    storageAccountKeyEnvVar: AZURE_STORAGE_ACCOUNT_ACCESS_KEY
   default: true
 
----
-# Azure Managed Disk Volume Snapshot Location
-apiVersion: velero.io/v1
-kind: VolumeSnapshotLocation
-metadata:
-  name: default
-  namespace: velero
-  labels:
-    app.kubernetes.io/name: velero
-    app.kubernetes.io/component: volume-snapshots
-spec:
-  provider: azure
-  config:
-    resourceGroup: {{ .Values.velero.azure.resourceGroup }}
-    {{- if .Values.velero.azure.subscriptionId }}
-    subscriptionId: {{ .Values.velero.azure.subscriptionId }}
-    {{- end }}
+# No VolumeSnapshotLocation for azure: native managed-disk snapshots need an
+# Azure AD identity (subscription-scoped API), which storage-key auth doesn't
+# provide. Volume data is backed up via FSB (kopia -> blob) per-schedule
+# instead. If a workload identity is ever provisioned, restore the VSL with
+# resourceGroup/subscriptionId config to get native disk snapshots.
 {{- end }}
 
 {{- if eq .Values.velero.provider "gcp" }}
