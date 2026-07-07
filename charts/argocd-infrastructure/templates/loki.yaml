@@ -46,6 +46,16 @@ spec:
           # Authentication
           auth_enabled: false  # Single-tenant mode
 
+          # Storage — filesystem mode, but the chart still requires the
+          # bucketNames map to be defined (used in the config template
+          # even when type=filesystem). Names are dummies here.
+          storage:
+            type: filesystem
+            bucketNames:
+              chunks: chunks
+              ruler: ruler
+              admin: admin
+
           # Schema and storage
           schemaConfig:
             configs:
