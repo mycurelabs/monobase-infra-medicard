@@ -394,20 +394,25 @@ kyverno:
   enabled: false
 
 # Velero - Backup and disaster recovery
-# Modernized to chart 12.0.1 (Velero 1.18); intentionally DISABLED until the
-# backup blob container exists — enable-time checklist in
-# docs/operations/VELERO-CONFIGURATION.md. Credentials reuse the SAME Key
-# Vault entry s3proxy uses (storage-account key), so no dedicated backup
-# identity is needed.
+# Chart 12.0.1 (Velero 1.18). Enabled; credentials reuse the same Key Vault
+# entry s3proxy uses (storage-account key). See
+# docs/operations/VELERO-CONFIGURATION.md for the enable-time checklist.
+#
+# Two upstream items still needed before velero comes up green:
+# 1. MediCard populates KV `medicard-prod-azureblob-account-name` and
+#    -account-key (same entries s3proxy is waiting on).
+# 2. The `velero-backups` blob container exists in the storage account.
+# Until then velero pods stay in CrashLoop; ArgoCD retries cover it.
 velero:
-  enabled: false
+  enabled: true
   version: 12.0.1
   provider: azure
   azure:
-    # Same storage account s3proxy writes to. The name sits in KV as
-    # medicard-prod-azureblob-account-name (not secret) — fill at enable time.
-    storageAccount: ""
-    # Container for backups — create it in the account before enabling
+    # ponytail: same storage account s3proxy writes to. The actual name
+    # sits in KV as medicard-prod-azureblob-account-name (not secret) —
+    # replace this placeholder once MediCard shares the account name.
+    storageAccount: "REPLACE-WITH-MEDICARD-STORAGE-ACCOUNT-NAME"
+    # Container for backups — must exist before velero starts
     # (velero does not auto-create containers).
     blobContainer: "velero-backups"
   externalSecrets:
@@ -428,7 +433,7 @@ falco:
 
 # Loki - Log aggregation (Loki + Promtail)
 loki:
-  enabled: false
+  enabled: true
 
   # Loki version
   version: "6.24.0"
