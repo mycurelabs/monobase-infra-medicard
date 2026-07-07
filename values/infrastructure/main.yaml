@@ -7,7 +7,7 @@ argocd:
   # Git repository for GitOps
   # DEPLOYMENT-SPECIFIC: Override chart default (template points to monobaselabs/monobase-infra)
   repoURL: https://github.com/mycurelabs/monobase-infra-medicard.git
-  targetRevision: HEAD
+  targetRevision: main
 
   # ArgoCD Installation Configuration
   # Chart: https://github.com/argoproj/argo-helm
@@ -133,7 +133,7 @@ argocd:
   notifications:
     enabled: true
 
-    argocdUrl: https://argocd.example.com  # DEPLOYMENT-SPECIFIC: Set to actual ArgoCD URL per environment
+    argocdUrl: https://argocd-mycurex.medicardphils.com  # DEPLOYMENT-SPECIFIC: prod ArgoCD URL (behind MediCard App Gateway)
 
     notifiers:
       # Slack notifications
@@ -305,7 +305,10 @@ envoyProxyConfig:
   azure:
     publicIpName: ""
     resourceGroup: ""
-    ipv4Address: "172.23.32.5"
+    # ponytail: empty → Azure auto-allocates from AKS subnet 172.22.40.0/22.
+    # Capture the allocated IP post-deploy and hand to MediCard for
+    # mc-traffic-mgr-mpi-prd.trafficmanager.net wiring. Pin here once known.
+    ipv4Address: ""
 
   # Internal LoadBalancer - provides private IP within Azure VNet
   # Client's gateway routes to this internal IP after TLS termination
@@ -324,7 +327,7 @@ externalSecrets:
     - name: azure-secretstore
       provider: azure
       azure:
-        vaultUrl: "https://kv-mpi-sea-a-mycurex01.vault.azure.net"
+        vaultUrl: "https://kv-mpi-sea-p-mycurex01.vault.azure.net"
         tenantId: "31e62360-d307-45a7-932a-f774aa7a6288"
         auth:
           workloadIdentity:

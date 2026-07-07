@@ -1,11 +1,14 @@
-# MediCard Staging Configuration
-# Staging environment on Azure AKS
-# Domain: *-mycurex-dev.medicardphils.com
+# MediCard PROD Configuration
+# Production environment on Azure AKS (aks-mpi-sea-p-mycurex01)
+# Domain: *-mycurex.medicardphils.com
+# KV: kv-mpi-sea-p-mycurex01
+# PG target: mpiazeppgdb0003.postgres.database.azure.com (user mycure_prod_app)
+# Mongo source: mycure-stg-sh.q4trx.mongodb.net (db medicard-production)
 
 global:
   domain: medicardphils.com
-  namespace: medicard-staging
-  environment: staging
+  namespace: medicard-prod
+  environment: production
 
 # ===== DISABLED: Monobase API (using HapiHub instead) =====
 api:
@@ -41,7 +44,7 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    tag: "11.2.9"
+    tag: "11.20.47"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -59,7 +62,7 @@ hapihub:
 
   gateway:
     hostnames:
-      - "api-mycurex-dev.medicardphils.com"
+      - "api-mycurex.medicardphils.com"
     sectionName: http  # External gateway handles TLS
     snippetsPolicy:
       enabled: false
@@ -70,7 +73,7 @@ hapihub:
     BETTER_AUTH_RATE_LIMIT_WINDOW: "60"
     BETTER_AUTH_RATE_LIMIT_MAX: "300"
     BETTER_AUTH_SESSION_COOKIE_CACHE_ENABLED: "false"
-    CORS_ORIGINS: "https://cms-mycurex-dev.medicardphils.com"
+    CORS_ORIGINS: "https://cms-mycurex.medicardphils.com"
 
   livenessProbe:
     enabled: true
@@ -107,7 +110,7 @@ hapihub:
     enabled: false
 
   mailpit:
-    enabled: true
+    enabled: false  # No mailpit in prod
 
 # ===== HEALTHCARE: MyCure Frontend =====
 mycure:
@@ -115,7 +118,7 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.4.2"
+    tag: "10.25.68"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -132,12 +135,12 @@ mycure:
       memory: 128Mi
 
   gateway:
-    hostname: "cms-mycurex-dev.medicardphils.com"
+    hostname: "cms-mycurex.medicardphils.com"
     listener: http  # External gateway handles TLS
 
   config:
-    API_URL: "https://api-mycurex-dev.medicardphils.com"
-    HAPIHUB_URL: "https://api-mycurex-dev.medicardphils.com"
+    API_URL: "https://api-mycurex.medicardphils.com"
+    HAPIHUB_URL: "https://api-mycurex.medicardphils.com"
 
   podDisruptionBudget:
     enabled: false
@@ -166,7 +169,7 @@ cadence:
       memory: 4Gi
 
   gateway:
-    hostname: "sync-mycurex-dev.medicardphils.com"
+    hostname: "sync-mycurex.medicardphils.com"
     listener: http  # External gateway handles TLS
 
   livenessProbe:
@@ -303,7 +306,7 @@ minio:
     enabled: true
     secretStore: azure-secretstore
     secrets:
-      - remoteKey: medicard-staging-minio-root-password
+      - remoteKey: medicard-prod-minio-root-password
         generator:
           generate: true
           type: password
@@ -365,14 +368,14 @@ minio:
 
     gateway:
       enabled: true
-      hostname: "storage-mycurex-dev.medicardphils.com"
+      hostname: "storage-mycurex.medicardphils.com"
       listener: http  # External gateway handles TLS
       rateLimit:
         enabled: false
 
 # ===== EMAIL TESTING: Mailpit =====
 mailpit:
-  enabled: true
+  enabled: false  # No mailpit in prod
 
   resources:
     requests:
@@ -392,7 +395,7 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
-    tag: "3.7.7"
+    tag: "3.9.3"
     pullPolicy: IfNotPresent
 
   replicaCount: 0
