@@ -425,12 +425,14 @@ monitoring:
     enabled: true  # Enable Grafana deployment
 
     # Gateway configuration for Grafana UI access
+    # ponytail: proxy-only in prod. No HTTPRoute, no public FQDN. Ops
+    # reach the UI via `kubectl -n monitoring port-forward svc/grafana`.
     gateway:
-      enabled: true
-      hostname: ""  # Uses grafana.{domain}
+      enabled: false
+      hostname: ""
       tls:
         certManager:
-          enabled: true  # Enable automatic TLS certificate provisioning
+          enabled: false
   
   # Alertmanager configuration
   alertmanager:
