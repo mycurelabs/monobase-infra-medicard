@@ -1,0 +1,24 @@
+apiVersion: v2
+name: s3proxy
+description: S3→Azure Blob translation layer (jclouds azureblob provider) so hapihub's S3 client can persist to native Azure Blob
+type: application
+version: 1.0.0
+appVersion: "3.3.0"
+
+keywords:
+  - s3
+  - object-storage
+  - azure-blob
+  - proxy
+  - external-secrets
+
+sources:
+  - https://github.com/gaul/s3proxy
+
+maintainers:
+  - name: Monobase
+    email: hello@monobase.com
+
+annotations:
+  category: Storage
+  licenses: Apache-2.0

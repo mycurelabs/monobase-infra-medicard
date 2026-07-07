@@ -1,0 +1,81 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "s3proxy.fullname" . }}
+  namespace: {{ include "s3proxy.namespace" . }}
+  labels:
+    {{- include "s3proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "s3proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "s3proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: s3proxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.port }}
+              name: s3
+              protocol: TCP
+          env:
+            # Static config — bind + provider + auth scheme
+            - name: S3PROXY_ENDPOINT
+              value: "http://0.0.0.0:{{ .Values.port }}"
+            - name: S3PROXY_AUTHORIZATION
+              value: "aws-v2-or-v4"
+            # hapihub SDK sends headers jclouds doesn't recognise; ignore
+            # rather than 400 the upload.
+            - name: S3PROXY_IGNORE_UNKNOWN_HEADERS
+              value: "true"
+            - name: JCLOUDS_PROVIDER
+              value: "azureblob"
+            {{- if .Values.azureblobEndpoint }}
+            - name: JCLOUDS_ENDPOINT
+              value: {{ .Values.azureblobEndpoint | quote }}
+            {{- end }}
+            # Credentials + identity from the `minio` Secret (populated by
+            # the ExternalSecret in externalsecret.yaml).
+            - name: S3PROXY_IDENTITY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "s3proxy.fullname" . }}
+                  key: root-user
+            - name: S3PROXY_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "s3proxy.fullname" . }}
+                  key: root-password
+            - name: JCLOUDS_IDENTITY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "s3proxy.fullname" . }}
+                  key: azureblob-account
+            - name: JCLOUDS_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "s3proxy.fullname" . }}
+                  key: azureblob-key
+          livenessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

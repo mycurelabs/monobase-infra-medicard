@@ -106,11 +106,10 @@ hapihub:
     enabled: false  # v11 is PG-only
 
   minio:
-    # ponytail: MinIO removed per MediCard clarifications sheet (row 5.c.xii).
-    # hapihub loses its storage backend; s3proxy → native Azure Blob is the
-    # follow-up (see prior "azure-storage" session plan). Blocks file
-    # uploads/downloads until s3proxy lands + storage account creds arrive.
-    enabled: false
+    # ponytail: MinIO the subchart stays off — s3proxy replaces it and
+    # advertises itself as a Service named `minio` (fullnameOverride) so
+    # hapihub's chart branch works verbatim.
+    enabled: true
     defaultBuckets: "monobase-files"
 
   valkey:
@@ -304,85 +303,43 @@ mongodb:
 valkey:
   enabled: false
 
-# ===== STORAGE: MinIO Object Storage =====
-# ponytail: disabled — MediCard uses native Azure Blob (sheet row 5.c.xii).
-# Follow-up: deploy s3proxy pointing at their storage account so hapihub's
-# S3-only client stays talking S3 while bytes land in Blob. Waiting on
-# MediCard for storage account name + access key + container name.
+# ===== STORAGE: MinIO Object Storage (Bitnami subchart) =====
+# Kept disabled — s3proxy (below) replaces it, taking the same Service name
+# `minio` via fullnameOverride so hapihub's chart branch works verbatim.
 minio:
   enabled: false
 
-  # External Secrets configuration
+# ===== STORAGE: s3proxy → native Azure Blob =====
+# Stateless S3→Blob translator (jclouds azureblob). Presents an S3 API on
+# port 9000 through a Service literally named `minio` so hapihub finds it
+# without any chart change. All bytes live in native Azure Blob per the
+# Infrastructure Clarifications sheet (row 5.c.xii).
+#
+# Blockers before this goes green:
+#   1. ESO ClusterSecretStore Ready (see bootstrap report §3.1 — MediCard MI).
+#   2. KV entries populated in kv-mpi-sea-p-mycurex01:
+#      - medicard-prod-azureblob-account-name  (MediCard writes)
+#      - medicard-prod-azureblob-account-key   (MediCard writes)
+#      - medicard-prod-s3proxy-credential      (we write once, random)
+s3proxy:
+  enabled: true
+  fullnameOverride: minio  # Service + Secret both named `minio`
+
   externalSecrets:
     enabled: true
     secretStore: azure-secretstore
-    secrets:
-      - remoteKey: medicard-prod-minio-root-password
-        generator:
-          generate: true
-          type: password
-          description: MinIO root password
+    secretStoreKind: ClusterSecretStore
+    refreshInterval: 1h
+    azureAccountKey: medicard-prod-azureblob-account-name
+    azureBlobKeyKey: medicard-prod-azureblob-account-key
+    s3CredentialKey: medicard-prod-s3proxy-credential
 
-  # Bitnami MinIO subchart configuration
-  minio:
-    fullnameOverride: "minio"
+  container: monobase-files
 
-    image:
-      repository: bitnamilegacy/minio
-      tag: "2025.7.23-debian-12-r3"
-
-    mode: standalone
-
-    statefulset:
-      replicaCount: 1
-
-    auth:
-      existingSecret: minio
-
-    persistence:
-      enabled: true
-      storageClass: ""
-      size: 10Gi
-
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-    defaultBuckets: "monobase-files"
-
-    buckets:
-      - name: "monobase-files"
-    region: "us-east-1"
-
-    podSecurityContext:
-      enabled: true
-      fsGroup: 1001
-      fsGroupChangePolicy: "OnRootMismatch"
-
-    containerSecurityContext:
-      enabled: true
-      runAsUser: 1001
-      runAsGroup: 1001
-      runAsNonRoot: true
-      privileged: false
-      readOnlyRootFilesystem: true
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-          - ALL
-      seccompProfile:
-        type: RuntimeDefault
-
-    gateway:
-      enabled: true
-      hostname: "storage-mycurex.medicardphils.com"
-      listener: http  # External gateway handles TLS
-      rateLimit:
-        enabled: false
+  gateway:
+    enabled: true
+    hostname: "storage-mycurex.medicardphils.com"
+    listener: http  # External gateway terminates TLS
 
 # ===== EMAIL TESTING: Mailpit =====
 mailpit:
