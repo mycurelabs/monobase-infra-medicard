@@ -84,13 +84,14 @@ could not get provider client:
 missing service account annotation: azure.workload.identity/client-id
 ```
 
-The chart-side `authType: WorkloadIdentity` is correct; what's missing is the `azure.workload.identity/client-id` annotation on the `external-secrets/external-secrets-system` ServiceAccount. On staging that annotation carried UAMI client-id `d6b958ed-790e-4a8a-9ce0-10aa6c0776b8`. Per row 5.b.iii of the *Infrastructure Clarifications* sheet, MediCard replied "No separate user-assigned mi for ExternalSecrets at this moment" and pointed at the AKS kubelet MI / a `service.mycure` SA (rows 5.b.iv / 5.b.v).
+The chart-side `authType: WorkloadIdentity` is configured; what the reconciler is missing is the identity's client-id (surfaced to ESO as the `azure.workload.identity/client-id` annotation on the `external-secrets` ServiceAccount). On staging that annotation carried UAMI client-id `d6b958ed-790e-4a8a-9ce0-10aa6c0776b8`; on prod no equivalent value has been supplied. Sheet row 5.b.iii reads "No separate user-assigned mi for ExternalSecrets at this moment", with rows 5.b.iv / 5.b.v pointing at the AKS kubelet MI or a `service.mycure` SA as alternatives — no client-id captured for any of those either.
 
-**Action needed from MediCard:**
-- (a) UAMI approach: provision a UAMI in the prod resource group, grant it `Key Vault Secrets User` on `kv-mpi-sea-p-mycurex01`, create a federated identity credential binding `subject: system:serviceaccount:external-secrets-system:external-secrets`, `audience: api://AzureADTokenExchange`, and hand us the UAMI client-id; **or**
-- (b) Kubelet MI approach: grant the AKS kubelet MI `Key Vault Secrets User` on the same vault and share its client-id — we then swap the ClusterSecretStore `authType` to `ManagedIdentity` and drop the SA-annotation requirement.
+**What we need to unblock this** (implementation details on MediCard's side are out of scope):
+- The client-id of whichever Azure identity MediCard intends to use for cluster→KV reads on `kv-mpi-sea-p-mycurex01`.
+- Confirmation that identity has been granted read access to the vault's secrets (the mechanism MediCard uses to grant that access — RBAC role, access policy, whatever — is their call).
+- Confirmation of the auth model chosen: if the identity is a dedicated UAMI reached via workload-identity federation, we drop the client-id into the SA annotation as-is. If it's the AKS kubelet MI or another mode, we adjust the ClusterSecretStore's `authType` accordingly.
 
-Either unblocks §3.2 immediately.
+Once received, §3.2 unblocks.
 
 ### 3.2 Application pods
 
@@ -122,28 +123,28 @@ medicard     mycure    ["cms-mycurex.medicardphils.com"]
 monitoring   grafana   ["grafana.medicardphils.com"]
 ```
 
-**Action needed from MediCard:** point the external Application Gateway / `mc-traffic-mgr-mpi-prd.trafficmanager.net` backends for the four hostnames above at `172.22.40.10` (HTTP :80). TLS is terminated on their side per the sheet (5.d.i).
+**Reported to MediCard:** the cluster's internal LoadBalancer IP for the four hostnames above is `172.22.40.10`, HTTP port 80. External routing, DNS, and TLS termination remain MediCard's responsibility per sheet row 5.d; the specific ingress mechanism they use to reach `172.22.40.10:80` (Application Gateway, TrafficManager, direct DNS, etc.) is out of scope for us.
 
-**Recommended follow-up on our side:** once MediCard confirms `172.22.40.10` is fine to keep, pin it via `envoyProxyConfig.azure.ipv4Address: "172.22.40.10"` in `values/infrastructure/main.yaml` so it survives an LB recreate.
+**Our-side follow-up:** if `172.22.40.10` is stable across LB recreates on MediCard's end, we can pin it via `envoyProxyConfig.azure.ipv4Address` in `values/infrastructure/main.yaml`. Otherwise we leave the current auto-allocation in place and capture whatever new IP appears after any LB recreate.
 
 ### 3.4 Vault contents (per Infrastructure Clarifications sheet)
 
-Values shared by MediCard for population under the naming convention our charts expect:
+For each KV entry name our ExternalSecrets are configured to read, this is what was observed at snapshot time. The column "Value visible in the sheet" tracks values MediCard has already disclosed to us in writing; it does NOT imply the corresponding KV entry has been created — that step is on the KV owner (MediCard for the MediCard-owned entries; us for the s3proxy internal credential).
 
-| KV secret name | Value source (from sheet) | Status in KV |
+| KV secret name | Value visible in the sheet | Observed status |
 |---|---|---|
-| `medicard-prod-DATABASE_URI` | Row 3.a, latest: `postgresql://mycure_prod_app:[REDACTED-PG-PASSWORD]@mpiazeppgdb0003.postgres.database.azure.com:5432/postgres?sslmode=require` | Value shared; sheet row 5.c.ix says "not yet configured for ESO sync" — MediCard to write to KV under this exact name. |
-| `medicard-prod-pg-target-uri` | Row 5.c.xi: same as DATABASE_URI (single role) | Same — MediCard to write. |
-| `medicard-prod-AUTH_SECRET` | Row 99: `[REDACTED-AUTH-SECRET]` | Value shared; MediCard to write. |
-| `medicard-prod-BETTER_AUTH_SECRET` | Row 5.c.viii, latest: "no entry found in prod app config" | **Not shared** — either MediCard provides an existing value (to keep session parity with the legacy VM), or we generate a fresh one (invalidates any pre-existing sessions, which is fine since prod is empty). |
-| `medicard-prod-mongo-source-uri` | Row 4.a: `mongodb+srv://stg_mycure_acct:[REDACTED-MONGO-PASSWORD]@mycure-stg-sh.q4trx.mongodb.net/admin?retryWrites=true&w=majority&appName=mycure-stg-sh` | Value shared; MediCard to write (only needed once we start the migrator). |
-| ~~`medicard-prod-minio-root-password`~~ | Not needed | Superseded — MinIO subchart disabled; s3proxy owns the S3-side credential. |
-| `medicard-prod-azureblob-account-name` | Storage account name (e.g., `medicardprodstore`) — MediCard confirmed dedicated account in prep. | **Not written yet.** Consumed by `s3proxy` ExternalSecret → k8s Secret `minio` key `azureblob-account`. |
-| `medicard-prod-azureblob-account-key` | Storage account access key. | **Not written yet.** Consumed by `s3proxy` → `minio` Secret key `azureblob-key`. |
-| `medicard-prod-s3proxy-credential` | Internal S3-side credential (32-char random). We mint this once — no MediCard action. | **Not written yet.** Consumed by `s3proxy` → `minio` Secret key `root-password`. |
-| `medicard-prod-pg-encryption-key` + per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | Row 5.c.i–vii: **disputed** — MediCard says "data is plain text", MYCURE DEV rebuttal says "encrypted, keys exist". | Unresolved. Only needed once migrator is enabled and touches encrypted rows. **Non-blocker for this deploy.** |
+| `medicard-prod-DATABASE_URI` | Row 3.a, latest: `postgresql://mycure_prod_app:[REDACTED-PG-PASSWORD]@mpiazeppgdb0003.postgres.database.azure.com:5432/postgres?sslmode=require` | Value disclosed; sheet row 5.c.ix notes "not yet configured for ESO sync". Owner: MediCard. |
+| `medicard-prod-pg-target-uri` | Row 5.c.xi: same as DATABASE_URI (single role). | Value disclosed; not observed in KV. Owner: MediCard. |
+| `medicard-prod-AUTH_SECRET` | Row 99: `[REDACTED-AUTH-SECRET]`. | Value disclosed; not observed in KV. Owner: MediCard. |
+| `medicard-prod-BETTER_AUTH_SECRET` | Row 5.c.viii, latest: "no entry found in prod app config". | Value NOT disclosed. Two paths exist: MediCard supplies an existing value if session parity with the legacy VM matters, otherwise a fresh value can be generated (with the caveat that any pre-existing sessions would be invalidated). |
+| `medicard-prod-mongo-source-uri` | Row 4.a: `mongodb+srv://stg_mycure_acct:[REDACTED-MONGO-PASSWORD]@mycure-stg-sh.q4trx.mongodb.net/admin?retryWrites=true&w=majority&appName=mycure-stg-sh`. | Value disclosed; not observed in KV. Only becomes relevant once the migrator is un-paused. Owner: MediCard. |
+| ~~`medicard-prod-minio-root-password`~~ | Not needed. | Superseded — MinIO subchart disabled; s3proxy owns the S3-side credential. |
+| `medicard-prod-azureblob-account-name` | Storage account name (per earlier answers, expected to be a dedicated account for this workload). | Not observed in KV. Owner: MediCard. |
+| `medicard-prod-azureblob-account-key` | Storage account access key. | Not observed in KV. Owner: MediCard. |
+| `medicard-prod-s3proxy-credential` | Not applicable — internal S3-side credential (32-char random). | Not written yet. Owner: us. No MediCard dependency. |
+| `medicard-prod-pg-encryption-key` + per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | Row 5.c.i–vii: **disputed** — MediCard says "data is plain text", MYCURE DEV rebuttal says "encrypted, keys exist". | Unresolved dispute. Only becomes blocking once the migrator is enabled AND the source data is in fact encrypted. Non-blocker for this deploy. |
 
-Nothing in §3.4 blocks IaC shape. It **is** blocking pods coming up green: hapihub needs `DATABASE_URI` + `AUTH_SECRET`; s3proxy needs the `azureblob-*` pair + `s3proxy-credential`. Migrator un-pause additionally needs the source URI (and encryption keys if the data is actually encrypted).
+Nothing in §3.4 blocks IaC shape. It **is** the reason hapihub and s3proxy pods don't come up: hapihub reads `DATABASE_URI` + `AUTH_SECRET` from the ExternalSecret-populated `hapihub-secrets`, s3proxy reads the `azureblob-*` pair from the ExternalSecret-populated `minio` Secret. Migrator un-pause additionally reads the source URI (and encryption keys if the disputed encryption state resolves to "encrypted").
 
 ### 3.5 Ancillary observations
 
@@ -161,14 +162,16 @@ MediCard requested (Infrastructure Clarifications sheet row 5.c.xii) that object
 - `9434f1d` — New chart `charts/s3proxy/` added. Runs `andrewgaul/s3proxy:3.3.0` — a stateless S3→Azure Blob translator via jclouds' `azureblob` provider. Bytes live in native Blob; no PVC. Uses `fullnameOverride: minio` so the Service (port 9000), Deployment, and ExternalSecret-managed Secret are all named `minio`, meaning hapihub's chart branches (`hapihub.minio.enabled: true`, secretKeyRef `name: minio`) work unchanged. ArgoCD auto-discovery template `charts/argocd-applications/templates/s3proxy.yaml` spawns the `medicard-s3proxy` child Application on sync wave 2.
 - `7569ab1` — Added the securityContext block (`runAsNonRoot: true`, `runAsUser: 1000`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`) required by the cluster's `restricted:latest` PodSecurity profile. Before this, the ReplicaSet controller refused to create pods with `Warning FailedCreate` events; after, pods spawn but sit at `CreateContainerConfigError` waiting on the `minio` Secret (§3.1).
 
-**What we need from MediCard to turn s3proxy green** (all previously listed, restated for completeness):
-- Populate KV `kv-mpi-sea-p-mycurex01` with:
-  - `medicard-prod-azureblob-account-name` — storage account (e.g., `medicardprodstore`), dedicated per MediCard's earlier answer.
-  - `medicard-prod-azureblob-account-key` — one of the two account keys.
-- Confirm the storage account is on **standard commercial Azure** (not sovereign) so jclouds' default endpoint suffix works. If firewalled: allowlist the AKS cluster's egress IP (send once known).
-- Blob container `monobase-files` — either MediCard creates it or we create it via s3proxy once the key is live.
+**What we need to observe on MediCard's side for s3proxy to become functional** (mechanism and process on their side are out of scope for us):
 
-The third KV entry, `medicard-prod-s3proxy-credential`, is ours to write once with a random 32-char password. Doesn't need rotation (internal-to-cluster identity), and no MediCard interaction is required.
+- Two KV entries present in `kv-mpi-sea-p-mycurex01` under the names our ExternalSecret is configured to read:
+  - `medicard-prod-azureblob-account-name` — the storage account name (per earlier answers, expected to be a dedicated account for this workload).
+  - `medicard-prod-azureblob-account-key` — an access key for that account.
+- Confirmation of the Azure environment (standard commercial vs. sovereign). Standard commercial requires no additional config on our side; a sovereign or custom-endpoint deployment would require a different endpoint value.
+- Confirmation of the storage account's network posture (public with key auth, private endpoint, or IP-restricted from the AKS VNet's egress). The report simply flags that if the account is unreachable from AKS as configured, s3proxy will fail with connection errors; the mechanism MediCard uses to make it reachable is their decision.
+- Existence of a Blob container named `monobase-files`. If it doesn't exist, s3proxy can create it on first write; MediCard may prefer to pre-create it with their own naming/tagging conventions.
+
+The third KV entry, `medicard-prod-s3proxy-credential`, is not a MediCard dependency — it's an internal-to-cluster S3 credential we write once at any time and rotate at our discretion.
 
 ## 4. Summary — status per deployable
 
