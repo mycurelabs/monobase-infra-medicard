@@ -120,10 +120,11 @@ NAMESPACE    NAME      HOSTNAMES
 medicard     hapihub   ["api-mycurex.medicardphils.com"]
 medicard     minio     ["storage-mycurex.medicardphils.com"]   ← backed by s3proxy Service (§3.6)
 medicard     mycure    ["cms-mycurex.medicardphils.com"]
-monitoring   grafana   ["grafana.medicardphils.com"]
 ```
 
-**Reported to MediCard:** the cluster's internal LoadBalancer IP for the four hostnames above is `172.22.40.10`, HTTP port 80. External routing, DNS, and TLS termination remain MediCard's responsibility per sheet row 5.d; the specific ingress mechanism they use to reach `172.22.40.10:80` (Application Gateway, TrafficManager, direct DNS, etc.) is out of scope for us.
+Grafana is deliberately not on this list — see §3.5.
+
+**Reported to MediCard:** the cluster's internal LoadBalancer IP for the three hostnames above is `172.22.40.10`, HTTP port 80. External routing, DNS, and TLS termination remain MediCard's responsibility per sheet row 5.d; the specific ingress mechanism they use to reach `172.22.40.10:80` (Application Gateway, TrafficManager, direct DNS, etc.) is out of scope for us.
 
 **Our-side follow-up:** if `172.22.40.10` is stable across LB recreates on MediCard's end, we can pin it via `envoyProxyConfig.azure.ipv4Address` in `values/infrastructure/main.yaml`. Otherwise we leave the current auto-allocation in place and capture whatever new IP appears after any LB recreate.
 
@@ -149,7 +150,7 @@ Nothing in §3.4 blocks IaC shape. It **is** the reason hapihub and s3proxy pods
 ### 3.5 Ancillary observations
 
 - ArgoCD Git repo credential currently uses a `mycurebot` fine-grained PAT. Ponytail-correct for bootstrap; migration to a GitHub App with rotation is a follow-up.
-- `grafana` HTTPRoute uses `grafana.medicardphils.com` — verify DNS on the MediCard side once (3.3) is wired; currently there is no DNS entry.
+- Grafana is proxy-only in prod (commit `ffabfe7`). `monitoring.grafana.gateway.enabled: false` in `values/infrastructure/main.yaml`; no HTTPRoute is attached to the shared gateway and no `grafana.medicardphils.com` FQDN is registered on our side. Ops access is via `kubectl -n monitoring port-forward svc/grafana 3000:3000` from the bastion. Rationale: Grafana holds the whole cluster's metric surface; public exposure of an ops-only UI is a needless attack surface.
 - No monitoring dashboards were customised in this run. Prometheus + Grafana came up on default values from the chart.
 - Neither `hapihub-secrets` nor the s3proxy-backed `minio` Secret exist yet; both are ESO-driven and blocked on §3.1. Until then hapihub sits at `CreateContainerConfigError` — the SQLite fallback that existed briefly between commits `5a2dd9b` and `9434f1d` is gone.
 - **Naming smell — deliberate.** The s3proxy chart uses `fullnameOverride: minio`, so the Service, Deployment, ReplicaSet, HTTPRoute, and Secret it manages are all named `minio` despite the workload being s3proxy talking to Azure Blob. This means the hapihub chart works without any modification. Rename-to-`hapihub-storage` cleanup is tracked as a follow-up refactor across `charts/hapihub/templates/deployment.yaml:157–199` and `charts/hapihub/templates/_helpers.tpl:193`.
