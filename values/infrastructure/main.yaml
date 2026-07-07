@@ -7,7 +7,7 @@ argocd:
   # Git repository for GitOps
   # DEPLOYMENT-SPECIFIC: Override chart default (template points to monobaselabs/monobase-infra)
   repoURL: https://github.com/mycurelabs/monobase-infra-medicard.git
-  targetRevision: HEAD
+  targetRevision: staging
 
   # ArgoCD Installation Configuration
   # Chart: https://github.com/argoproj/argo-helm
