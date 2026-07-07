@@ -1,53 +1,21 @@
 # 2026-07-07 — Prod Cluster IaC Bootstrap
 
-**Status:** ArgoCD + all infrastructure Applications deployed. All app-layer workloads (hapihub, s3proxy) queued on the single ESO `azure-secretstore` blocker — MediCard-side identity + KV entries. Mycure and migrator infra are green.
+**Status:** ArgoCD + all infrastructure Applications deployed. Application-layer workloads (hapihub, s3proxy) are queued on a single upstream blocker: the ExternalSecrets operator can't authenticate to Azure Key Vault, so the Secrets those pods depend on are never created. Mycure and the migrator scaffold are green.
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01` (Azure, southeastasia, Private Link API).
 **Access path:** all `kubectl` / `helm` from operator jumphost `mc.remote.prd.bastion` via `ssh medicard.gateway`.
 **Prior state:** see [`2026-07-07-prod-cluster-database-connectivity-validation.md`](./2026-07-07-prod-cluster-database-connectivity-validation.md) — cluster held only system namespaces at start of this run.
-**Repo state at snapshot:** `main` @ `7569ab1` (post Phase 0 rename + Phase 1 s3proxy + PSS fix — see Appendix A).
 
 ---
 
 ## 1. Scope
 
-Deploy the MediCard IaC (this repo, prod branch = `main`) end-to-end into the empty PROD cluster: install ArgoCD, wire GitOps auto-discovery to the private repo, let ArgoCD reconcile all infrastructure + application charts to the desired state. Migration itself stays gated (`hapihubMigrator.replicaCount: 0`) — this deploy is IaC only, not a data cutover.
+Deploy the MediCard IaC end-to-end into the empty PROD cluster: install ArgoCD, wire GitOps auto-discovery, let ArgoCD reconcile all infrastructure + application charts to the desired state. Migration itself stays gated (`hapihubMigrator.replicaCount: 0`) — this deploy is IaC only, not a data cutover.
 
 This is a **mutating** run: workloads, namespaces, secrets, and CRDs are created and left in place. Contrast with the read-only connectivity probes in prior reports.
 
-## 2. What shipped
+## 2. On-cluster state
 
-### 2.1 Branch flip (repo-side, pre-bootstrap)
-
-- New `staging` branch cut from prior `main` at `5544b42`; `values/infrastructure/main.yaml` pinned there to `targetRevision: staging` (commit `7dcd9aa`).
-- Staging cluster's `argocd-bootstrap` chart re-applied; the staging `infrastructure` Application and all `medicard-staging-*` children now track the `staging` branch. Staging remained Synced+Healthy through the flip — verified before mutating `main`.
-- `main` rewritten to hold PROD values (commit `e94344c`). Two files changed. Substitutions per the *Infrastructure Clarifications* sheet:
-
-| Field | Staging | PROD |
-|---|---|---|
-| `global.namespace` | `medicard-staging` | `medicard` (was `medicard-prod` at initial bootstrap; renamed in `1728194` — see Phase 0 in Appendix A) |
-| `global.environment` | `staging` | `production` |
-| App hostnames | `*-mycurex-dev.medicardphils.com` | `*-mycurex.medicardphils.com` |
-| Azure KV `vaultUrl` | `kv-mpi-sea-a-mycurex01` | `kv-mpi-sea-p-mycurex01` |
-| Azure KV `tenantId` | `31e62360-…` | same (confirmed) |
-| Envoy internal LB IP | `172.23.32.5` (static) | `""` (auto-allocate; captured post-deploy, see §3.3) |
-| `hapihub.image.tag` | `11.2.9` | `11.20.47` (ghcr latest as of run) |
-| `mycure.image.tag` | `10.4.2` | `10.25.68` |
-| `hapihubMigrator.image.tag` | `3.7.7` | `3.9.3` |
-| `hapihubMigrator.replicaCount` | `0` | `0` (unchanged — migration stays gated) |
-| MinIO subchart | Bitnami MinIO enabled | disabled; replaced by s3proxy → Azure Blob (§3.6) |
-| Mailpit | enabled | disabled |
-
-### 2.2 Cluster-side bootstrap (on `mc.remote.prd.bastion`)
-
-- Installed helm v3.16.3 to `~/bin/helm` (no sudo).
-- Shipped `main` tree via `git archive HEAD | ssh … | tar x` into `~/monobase-infra-medicard`.
-- `kubectl create ns argocd`.
-- `helm upgrade --install argocd argo/argo-cd --version 7.7.12` with `values/infrastructure/main.yaml`. 7 pods reached Running.
-- Created `argocd-repo-medicard` Secret (label `argocd.argoproj.io/secret-type: repository`) with GitHub PAT (`gh auth token`, user `mycurebot`, scopes `repo`) so ArgoCD can clone the private repo.
-- `helm upgrade --install argocd-bootstrap ./charts/argocd-bootstrap` — creates the `infrastructure` Application and the `monobase-auto-discover` ApplicationSet.
-- ApplicationSet auto-discovered `values/deployments/medicard.yaml` and generated the `medicard-root` Application, which fanned out to per-app children (`medicard-{hapihub, hapihub-migrator, mycure, namespace, s3proxy, security-baseline}` in the current state — the initial bootstrap used `medicard-prod-*` naming; see Phase 0 in Appendix A).
-
-### 2.3 Current on-cluster state
+### 2.1 ArgoCD Applications
 
 ```
 NAME                          REV      SYNC      HEALTH
@@ -69,15 +37,15 @@ monitoring                    11.3.9   Synced    Healthy
 monitoring-resources          main     Synced    Healthy
 ```
 
-### 2.4 Namespaces created
+### 2.2 Namespaces
 
-`argocd`, `envoy-gateway-system`, `external-secrets-system`, `gateway-system`, `medicard`, `monitoring` (6 total). Prior 5 system namespaces untouched. The empty `medicard-prod` shell from initial bootstrap was pruned by ArgoCD after the Phase 0 rename (see Appendix A).
+`argocd`, `envoy-gateway-system`, `external-secrets-system`, `gateway-system`, `medicard`, `monitoring` (6 total). Prior 5 system namespaces untouched.
 
 ## 3. Findings
 
-### 3.1 ExternalSecrets provider = InvalidProviderConfig (only remaining blocker)
+### 3.1 ExternalSecrets provider = InvalidProviderConfig (upstream blocker)
 
-`ClusterSecretStore/azure-secretstore` reconciler surfaces a specific, actionable error:
+`ClusterSecretStore/azure-secretstore` reconciler surfaces:
 
 ```
 could not get provider client:
@@ -95,18 +63,16 @@ Once received, §3.2 unblocks.
 
 ### 3.2 Application pods
 
-State evolved across four commits today (`e94344c` → `5a2dd9b` → `9434f1d` → `7569ab1`). Current, canonical state on the cluster:
-
-- **`hapihub`** — new ReplicaSet `hapihub-5774cfc768` waiting at `CreateContainerConfigError`: the Deployment's `secretKeyRef` to the `minio` Secret can't be resolved. The old ReplicaSet `hapihub-bb87dcc4c` (which briefly ran on in-pod SQLite between `5a2dd9b` and `9434f1d` because `hapihub.minio.enabled` was temporarily off) still holds one `1/1 Running` pod, but is a rollout artefact — it will terminate once the new one comes up. Do **not** treat that lingering `Running` pod as a working deploy: it has never been pointed at prod PG and has no persistent storage.
-- **`s3proxy`** (deployed as Service/Deployment/Secret named `minio` via `fullnameOverride`) — new ReplicaSet `minio-86b95648c6` has one pod at `CreateContainerConfigError`, same root cause: the `minio` Secret (with `root-user`/`root-password`/`azureblob-account`/`azureblob-key`) isn't there because ESO can't sync it (§3.1).
+- **`hapihub`** — pod in `CreateContainerConfigError`. The Deployment references a k8s Secret (`hapihub-secrets` for DATABASE_URI / AUTH_SECRET / etc., and `minio` for its S3 client) which the ExternalSecrets operator can't create until §3.1 clears.
+- **`s3proxy`** — pod in `CreateContainerConfigError`, same root cause: the k8s Secret it reads (which also happens to be named `minio` — see §3.5 for why) isn't there because ESO can't sync it.
 - **`mycure`** — 1/1 Running. No external-secret dependency; unaffected.
-- **`hapihub-migrator`** — 0/0 replicas as designed. Present in cluster; requires an explicit `hapihubMigrator.replicaCount=1` commit to un-pause.
+- **`hapihub-migrator`** — 0/0 replicas as designed. Present in cluster; requires an explicit config change on our side to un-pause once data-cutover time comes.
 
-Both `hapihub` and `s3proxy` come up together the moment §3.1 clears and the three KV entries in §3.4 land — one blocker unblocks both.
+Both `hapihub` and `s3proxy` come up together the moment §3.1 clears and the KV entries in §3.4 land — one blocker unblocks both.
 
-### 3.3 Envoy LoadBalancer internal IP allocated: `172.22.40.10`
+### 3.3 Envoy LoadBalancer internal IP: `172.22.40.10`
 
-With `envoyProxyConfig.azure.ipv4Address: ""` and the Azure internal-LB annotation, Azure auto-allocated **`172.22.40.10`** from the AKS subnet `subnet-p-mycurex-aks01-172.22.40.0/22`:
+Azure auto-allocated `172.22.40.10` from the AKS subnet `subnet-p-mycurex-aks01-172.22.40.0/22`:
 
 ```
 NAMESPACE              NAME                                              TYPE          EXTERNAL-IP    PORT(S)
@@ -126,42 +92,39 @@ Grafana is deliberately not on this list — see §3.5.
 
 **Reported to MediCard:** the cluster's internal LoadBalancer IP for the three hostnames above is `172.22.40.10`, HTTP port 80. External routing, DNS, and TLS termination remain MediCard's responsibility per sheet row 5.d; the specific ingress mechanism they use to reach `172.22.40.10:80` (Application Gateway, TrafficManager, direct DNS, etc.) is out of scope for us.
 
-**Our-side follow-up:** if `172.22.40.10` is stable across LB recreates on MediCard's end, we can pin it via `envoyProxyConfig.azure.ipv4Address` in `values/infrastructure/main.yaml`. Otherwise we leave the current auto-allocation in place and capture whatever new IP appears after any LB recreate.
+**Our-side follow-up:** if `172.22.40.10` is stable across LB recreates on MediCard's end, we can pin it in our infrastructure values. Otherwise we leave the current auto-allocation in place and capture whatever new IP appears after any LB recreate.
 
 ### 3.4 Vault contents (per Infrastructure Clarifications sheet)
 
-For each KV entry name our ExternalSecrets are configured to read, this is what was observed at snapshot time. The column "Value visible in the sheet" tracks values MediCard has already disclosed to us in writing; it does NOT imply the corresponding KV entry has been created — that step is on the KV owner (MediCard for the MediCard-owned entries; us for the s3proxy internal credential).
+For each KV entry name our ExternalSecrets are configured to read, this is what was observed at snapshot time. The "Value visible in the sheet" column tracks values MediCard has already disclosed to us in writing; it does NOT imply the corresponding KV entry has been created — that step is on the KV owner (MediCard for the MediCard-owned entries; us for the s3proxy internal credential).
 
 | KV secret name | Value visible in the sheet | Observed status |
 |---|---|---|
-| `medicard-prod-DATABASE_URI` | Row 3.a, latest: `postgresql://mycure_prod_app:[REDACTED-PG-PASSWORD]@mpiazeppgdb0003.postgres.database.azure.com:5432/postgres?sslmode=require` | Value disclosed; sheet row 5.c.ix notes "not yet configured for ESO sync". Owner: MediCard. |
+| `medicard-prod-database-uri` | Row 3.a, latest: `postgresql://mycure_prod_app:[REDACTED-PG-PASSWORD]@mpiazeppgdb0003.postgres.database.azure.com:5432/postgres?sslmode=require` | Value disclosed; sheet row 5.c.ix notes "not yet configured for ESO sync". Owner: MediCard. |
 | `medicard-prod-pg-target-uri` | Row 5.c.xi: same as DATABASE_URI (single role). | Value disclosed; not observed in KV. Owner: MediCard. |
-| `medicard-prod-AUTH_SECRET` | Row 99: `[REDACTED-AUTH-SECRET]`. | Value disclosed; not observed in KV. Owner: MediCard. |
-| `medicard-prod-BETTER_AUTH_SECRET` | Row 5.c.viii, latest: "no entry found in prod app config". | Value NOT disclosed. Two paths exist: MediCard supplies an existing value if session parity with the legacy VM matters, otherwise a fresh value can be generated (with the caveat that any pre-existing sessions would be invalidated). |
+| `medicard-prod-auth-secret` | Row 99: `[REDACTED-AUTH-SECRET]`. | Value disclosed; not observed in KV. Owner: MediCard. |
+| `medicard-prod-better-auth-secret` | Row 5.c.viii, latest: "no entry found in prod app config". | Value NOT disclosed. Two paths exist: MediCard supplies an existing value if session parity with the legacy VM matters, otherwise a fresh value can be generated (with the caveat that any pre-existing sessions would be invalidated). |
 | `medicard-prod-mongo-source-uri` | Row 4.a: `mongodb+srv://stg_mycure_acct:[REDACTED-MONGO-PASSWORD]@mycure-stg-sh.q4trx.mongodb.net/admin?retryWrites=true&w=majority&appName=mycure-stg-sh`. | Value disclosed; not observed in KV. Only becomes relevant once the migrator is un-paused. Owner: MediCard. |
-| ~~`medicard-prod-minio-root-password`~~ | Not needed. | Superseded — MinIO subchart disabled; s3proxy owns the S3-side credential. |
 | `medicard-prod-azureblob-account-name` | Storage account name (per earlier answers, expected to be a dedicated account for this workload). | Not observed in KV. Owner: MediCard. |
 | `medicard-prod-azureblob-account-key` | Storage account access key. | Not observed in KV. Owner: MediCard. |
 | `medicard-prod-s3proxy-credential` | Not applicable — internal S3-side credential (32-char random). | Not written yet. Owner: us. No MediCard dependency. |
 | `medicard-prod-pg-encryption-key` + per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | Row 5.c.i–vii: **disputed** — MediCard says "data is plain text", MYCURE DEV rebuttal says "encrypted, keys exist". | Unresolved dispute. Only becomes blocking once the migrator is enabled AND the source data is in fact encrypted. Non-blocker for this deploy. |
 
-Nothing in §3.4 blocks IaC shape. It **is** the reason hapihub and s3proxy pods don't come up: hapihub reads `DATABASE_URI` + `AUTH_SECRET` from the ExternalSecret-populated `hapihub-secrets`, s3proxy reads the `azureblob-*` pair from the ExternalSecret-populated `minio` Secret. Migrator un-pause additionally reads the source URI (and encryption keys if the disputed encryption state resolves to "encrypted").
+Nothing in §3.4 blocks IaC shape. It **is** the reason hapihub and s3proxy pods don't come up: hapihub reads `DATABASE_URI` + `AUTH_SECRET` from the ExternalSecret-populated `hapihub-secrets`; s3proxy reads the `azureblob-*` pair from the ExternalSecret-populated `minio` Secret. Migrator un-pause additionally reads the source URI (and encryption keys if the disputed encryption state resolves to "encrypted").
 
 ### 3.5 Ancillary observations
 
-- ArgoCD Git repo credential currently uses a `mycurebot` fine-grained PAT. Ponytail-correct for bootstrap; migration to a GitHub App with rotation is a follow-up.
-- Grafana is proxy-only in prod (commit `ffabfe7`). `monitoring.grafana.gateway.enabled: false` in `values/infrastructure/main.yaml`; no HTTPRoute is attached to the shared gateway and no `grafana.medicardphils.com` FQDN is registered on our side. Ops access is via `kubectl -n monitoring port-forward svc/grafana 3000:3000` from the bastion. Rationale: Grafana holds the whole cluster's metric surface; public exposure of an ops-only UI is a needless attack surface.
-- No monitoring dashboards were customised in this run. Prometheus + Grafana came up on default values from the chart.
-- Neither `hapihub-secrets` nor the s3proxy-backed `minio` Secret exist yet; both are ESO-driven and blocked on §3.1. Until then hapihub sits at `CreateContainerConfigError` — the SQLite fallback that existed briefly between commits `5a2dd9b` and `9434f1d` is gone.
-- **Naming smell — deliberate.** The s3proxy chart uses `fullnameOverride: minio`, so the Service, Deployment, ReplicaSet, HTTPRoute, and Secret it manages are all named `minio` despite the workload being s3proxy talking to Azure Blob. This means the hapihub chart works without any modification. Rename-to-`hapihub-storage` cleanup is tracked as a follow-up refactor across `charts/hapihub/templates/deployment.yaml:157–199` and `charts/hapihub/templates/_helpers.tpl:193`.
+- ArgoCD Git repo credential is a `mycurebot` GitHub fine-grained PAT for the initial bootstrap. Migration to a GitHub App with rotation is a follow-up on our side.
+- **Grafana is proxy-only in prod.** No HTTPRoute is attached to the shared gateway and no `grafana.medicardphils.com` FQDN is registered on our side. Ops access is via `kubectl -n monitoring port-forward svc/grafana 3000:3000` from the bastion. Rationale: Grafana holds the whole cluster's metric surface; a public entry point for an ops-only UI is a needless attack surface.
+- Prometheus + Grafana came up on default chart values. No custom dashboards configured yet.
+- Neither `hapihub-secrets` nor the s3proxy-backed `minio` Secret exist yet — both are ESO-driven and blocked on §3.1. Consequently hapihub sits at `CreateContainerConfigError`; it has never reached the real Azure PG.
+- **Storage-layer naming (intentional, worth flagging to avoid confusion).** The S3-facing Service, Deployment, ReplicaSet, and Secret in `medicard` are all literally named `minio` even though the workload is s3proxy talking to Azure Blob. This lets the hapihub chart's built-in MinIO integration point at the s3proxy Service without any chart modification. Renaming this to something like `hapihub-storage` is a follow-up refactor.
 
-### 3.6 s3proxy — object storage on native Azure Blob
+### 3.6 Object storage layer: s3proxy → native Azure Blob
 
-MediCard requested (Infrastructure Clarifications sheet row 5.c.xii) that object storage be **native Azure Blob**, not MinIO. Delivered across three commits:
+Per Infrastructure Clarifications sheet row 5.c.xii, object storage in prod is native Azure Blob, not MinIO. The cluster runs a stateless `andrewgaul/s3proxy:3.3.0` container (`medicard-s3proxy` Application) that presents an S3 API on port 9000 and delegates writes to Azure Blob via jclouds' `azureblob` provider. All bytes live in the storage account; no PVC lives in the cluster.
 
-- `5a2dd9b` — Bitnami MinIO disabled + hapihub's `STORAGE_S3_*` env stripped. Pruned the MinIO Deployment/StatefulSet/PVC/ExternalSecret/HTTPRoute. Hapihub temporarily fell back to in-pod SQLite (superseded by `9434f1d`).
-- `9434f1d` — New chart `charts/s3proxy/` added. Runs `andrewgaul/s3proxy:3.3.0` — a stateless S3→Azure Blob translator via jclouds' `azureblob` provider. Bytes live in native Blob; no PVC. Uses `fullnameOverride: minio` so the Service (port 9000), Deployment, and ExternalSecret-managed Secret are all named `minio`, meaning hapihub's chart branches (`hapihub.minio.enabled: true`, secretKeyRef `name: minio`) work unchanged. ArgoCD auto-discovery template `charts/argocd-applications/templates/s3proxy.yaml` spawns the `medicard-s3proxy` child Application on sync wave 2.
-- `7569ab1` — Added the securityContext block (`runAsNonRoot: true`, `runAsUser: 1000`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`) required by the cluster's `restricted:latest` PodSecurity profile. Before this, the ReplicaSet controller refused to create pods with `Warning FailedCreate` events; after, pods spawn but sit at `CreateContainerConfigError` waiting on the `minio` Secret (§3.1).
+s3proxy is deployed alongside the ExternalSecret configured to read Azure Blob credentials from `kv-mpi-sea-p-mycurex01` and expose them to s3proxy at container start.
 
 **What we need to observe on MediCard's side for s3proxy to become functional** (mechanism and process on their side are out of scope for us):
 
@@ -181,86 +144,32 @@ The third KV entry, `medicard-prod-s3proxy-credential`, is not a MediCard depend
 | ArgoCD | ✅ installed, GitOps live | none |
 | envoy-gateway + shared-gateway | ✅ Programmed at 172.22.40.10 | none (MediCard AG wiring is downstream) |
 | external-secrets operator | ✅ Running | none |
-| ClusterSecretStore `azure-secretstore` | ❌ `InvalidProviderConfig` | §3.1 (MediCard MI + SA annotation) |
+| ClusterSecretStore `azure-secretstore` | ❌ `InvalidProviderConfig` | §3.1 (Azure identity + KV read access) |
 | `medicard` namespace + Kyverno/PSS baseline | ✅ | none |
-| hapihub | ❌ `CreateContainerConfigError` (Deployment spec references non-existent `minio` Secret + optional `hapihub-secrets`) | §3.1 (ESO to deliver `hapihub-secrets`) + §3.4 (KV entries for DATABASE_URI + AUTH_*) |
-| s3proxy (object storage → Azure Blob) | ❌ `CreateContainerConfigError` (Deployment references non-existent `minio` Secret) | §3.1 + §3.4 (`medicard-prod-azureblob-account-name`/`-key` + our `medicard-prod-s3proxy-credential`) |
+| hapihub | ❌ `CreateContainerConfigError` (Deployment references Secrets that don't exist yet) | §3.1 (ESO to deliver `hapihub-secrets`) + §3.4 (KV entries for DATABASE_URI + AUTH_*) |
+| s3proxy (object storage → Azure Blob) | ❌ `CreateContainerConfigError` (Deployment references `minio` Secret that doesn't exist yet) | §3.1 + §3.4 (`medicard-prod-azureblob-account-name`/`-key` + our `medicard-prod-s3proxy-credential`) |
 | mycure | ✅ 1/1 Running | none (no ext-secret dep) |
 | hapihub-migrator | ✅ Deployed, 0/0 replicas — **paused** | none (by design) |
-| monitoring stack | ✅ | none |
+| monitoring stack | ✅ | none (Grafana proxy-only per §3.5) |
 
 ## 5. Cluster-side artifacts left behind
 
 Contrary to the prior connectivity probes, **this run leaves everything in place** — that's the point. Retained artifacts:
 
-- 6 namespaces (§2.4).
+- 6 namespaces (§2.2).
 - ArgoCD 7.7.12 + argocd-bootstrap chart (Applications + ApplicationSet).
-- 1 GitHub PAT Secret (`argocd/argocd-repo-medicard`) — rotate when the mycurebot token rotates.
+- 1 GitHub PAT Secret in `argocd` for repository access.
 - All infrastructure Applications (envoy-gateway, external-secrets, monitoring, etc.).
 - All `medicard-*` child Applications and their reconciled resources.
-- No PVCs bound: PG is external, MongoDB Atlas is external, MinIO/s3proxy are stateless. No stray data on any upstream DB.
+- No PVCs bound: PG is external, MongoDB Atlas is external, s3proxy is stateless. No stray data on any upstream DB.
 - No mutating calls were made against `mpiazeppgdb0003` or `mycure-stg-sh` MongoDB Atlas from this deploy — hapihub hasn't successfully reached either DB, migrator is at 0.
 
-Rollback (if desired): the destructive path from the plan file — `helm uninstall argocd-bootstrap && kubectl delete applicationsets,applications -n argocd --all --cascade=foreground && helm uninstall argocd -n argocd && kubectl delete ns argocd envoy-gateway-system external-secrets-system gateway-system medicard monitoring` — returns the cluster to the pre-bootstrap state (system namespaces only, matching the 2026-07-07 connectivity report's environment fingerprint).
-
----
-
-## Appendix A — Commit + command chronology (all 2026-07-07)
-
-### Initial bootstrap — commits `7dcd9aa` (staging pin) + `e94344c` (prod values)
-
-```
-# Repo (ops laptop)
-git branch staging && git push -u origin staging
-# edit values/infrastructure/main.yaml on staging → targetRevision: staging
-git commit + push
-# re-apply on staging cluster (existing kubeconfig)
-KUBECONFIG=./.kube/config \
-  helm upgrade argocd-bootstrap ./charts/argocd-bootstrap \
-    -n argocd -f values/infrastructure/main.yaml --wait --timeout 5m
-# rewrite main with prod values (see §2.1), commit + push
-
-# Prod bastion (via ssh medicard.gateway → mc.remote.prd.bastion)
-mkdir -p ~/bin && curl -sSL https://get.helm.sh/helm-v3.16.3-linux-amd64.tar.gz | tar -xz -C /tmp/ && mv /tmp/linux-amd64/helm ~/bin/
-git archive HEAD | ssh … tar x -C ~/monobase-infra-medicard
-kubectl create ns argocd
-helm repo add argo https://argoproj.github.io/argo-helm && helm repo update
-helm upgrade --install argocd argo/argo-cd \
-  -n argocd --version 7.7.12 \
-  --values values/infrastructure/main.yaml \
-  --wait --timeout 15m
-kubectl apply -n argocd -f - <<YAML   # PAT-based repo cred
-apiVersion: v1
-kind: Secret
-metadata:
-  name: argocd-repo-medicard
-  labels: {argocd.argoproj.io/secret-type: repository}
-stringData:
-  type: git
-  url: https://github.com/mycurelabs/monobase-infra-medicard.git
-  username: x-access-token
-  password: <mycurebot PAT>
-YAML
-helm upgrade --install argocd-bootstrap ./charts/argocd-bootstrap \
-  -n argocd --values values/infrastructure/main.yaml --wait --timeout 5m
-```
-
-### Follow-up commits (same day, in order)
-
-- **`5a2dd9b` — MinIO disabled.** `values/deployments/medicard.yaml`: `minio.enabled: false` + `hapihub.minio.enabled: false`. ArgoCD auto-pruned the `medicard-prod-minio` Application and its resources; hapihub restarted onto in-pod SQLite (transient — superseded by `9434f1d`).
-- **`1728194` — Phase 0 namespace rename.** `global.namespace: medicard-prod` → `medicard`. ArgoCD renamed all `medicard-prod-*` Applications to `medicard-*`, moved workloads into the pre-existing `medicard` shell, and the empty `medicard-prod` namespace was pruned. Reconciliation on cluster was driven by a hard-refresh annotation on `medicard-root`.
-- **`9434f1d` — s3proxy chart landed.** New `charts/s3proxy/` + `charts/argocd-applications/templates/s3proxy.yaml` + values changes flipping `hapihub.minio.enabled` back on and adding the `s3proxy:` block. See §3.6.
-- **`7569ab1` — PSS securityContext fix.** Added `runAsNonRoot: true`, `runAsUser: 1000`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` to the s3proxy Deployment so PSS `restricted:latest` admits the pod.
-
-All post-bootstrap changes were delivered via git push → ArgoCD auto-sync (occasionally kicked with `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=hard --overwrite`). No further `helm upgrade` on the prod cluster was needed after the initial bootstrap.
-
-## Appendix B — Environment fingerprint at time of test
+## Appendix — Environment fingerprint at time of test
 
 - **Cluster:** `aks-mpi-sea-p-mycurex01`
 - **Kubernetes API server:** `https://aks-mpi-sea-p-mycurex01-dns-ib3b6bgj.996c88f8-39f9-4501-9694-b5cbfda6f629.privatelink.southeastasia.azmk8s.io:443` (Azure Private Link)
-- **Bastion:** `SEA-VM-STG-MYCURE-WEB` (user `mycurex`, IP 172.23.4.8), kubectl v1.31.0 preconfigured, helm v3.16.3 installed to `~/bin` during this run.
+- **Bastion:** `SEA-VM-STG-MYCURE-WEB` (user `mycurex`, IP 172.23.4.8), kubectl v1.31.0 preconfigured, helm v3.16.3 installed during this run.
 - **ArgoCD version:** `argo-cd` Helm chart `7.7.12` (app version `v2.13.2`).
 - **Envoy Gateway version:** `v1.2.0`.
 - **External Secrets Operator version:** `0.9.11`.
-- **Repo revision at snapshot:** `main` @ `7569ab1` (`fix(s3proxy): satisfy Pod Security Standard restricted profile`).
 - **Test date / time:** 2026-07-07 (Asia/Manila).
