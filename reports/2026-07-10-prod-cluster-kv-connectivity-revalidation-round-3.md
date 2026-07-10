@@ -1,6 +1,6 @@
 # 2026-07-10 — Prod Cluster Key Vault Connectivity Revalidation (round 3)
 
-**Status:** MediCard fixed the RBAC — the UAMI now has `Key Vault Secrets User` on the prod vault. Full read pipeline works end-to-end from inside the cluster. All three ExternalSecrets have synced (`hapihub-secrets`, `velero-credentials`, `minio-credentials`); the `minio-credentials` case was closed on our side by restructuring the s3proxy chart to mint its S3-side credential via ESO's `Password` generator (no external KV entry needed). Hapihub, s3proxy (fronting as `minio`), mycure, velero, and the node-agent DaemonSet are all 1/1 Running. The only remaining item is MediCard-side: velero's BackupStorageLocation is `Unavailable` because the `velero-backups` blob container does not exist in `sampseapmycurex01` yet — non-blocker for hapihub/s3proxy, only matters at first backup attempt.
+**Status:** MediCard fixed the RBAC — the UAMI now has `Key Vault Secrets User` on the prod vault. Full read pipeline works end-to-end from inside the cluster. All three ExternalSecrets are `SecretSynced` (the `minio-credentials` case was closed on our side by restructuring the s3proxy chart to mint its S3-side credential via ESO's `Password` generator; no external KV entry needed). After a subsequent set of chart fixes on our side — reordering s3proxy's env vars so `JCLOUDS_ENDPOINT` defaults from the account name, and pointing velero + hapihub at the pre-created container `blobmpseapmycurex01` — mycure, s3proxy (fronting as `minio`), velero, and node-agent DaemonSets are all 1/1 Running. **Hapihub remains in `CrashLoopBackOff`**: connection to `mpiazeppgdb0003` succeeds through TLS + auth, but Postgres returns `permission denied for database postgres` (SQLSTATE 42501) — the `mycure_prod_app` role can connect but lacks the object grants hapihub needs. This is the only remaining MediCard-side item.
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01`.
 **Access path:** kubectl executed from `mc.remote.prd.bastion` via `ssh medicard.gateway`.
 **Prior state:** see [`2026-07-10-prod-cluster-kv-connectivity-revalidation.md`](./2026-07-10-prod-cluster-kv-connectivity-revalidation.md) (round 2). Round 2 observed the RBAC `Forbidden` error immediately after DNS was fixed; MediCard's Khalid Bayabao confirmed the diagnosis and swapped the MI's role from `Key Vault Certificate User` to `Key Vault Secrets User`.
@@ -80,19 +80,13 @@ velero      velero-credentials   SecretSynced   Secret created with AZURE_STORAG
 - **`minio`** (s3proxy fronting as `minio`) — 1/1 Running. S3 API is reachable at `http://minio.medicard.svc.cluster.local:9000`; hapihub's `STORAGE_S3_*` env vars point here.
 - **`velero`** and **`node-agent-*`** — all 1/1 Running.
 
-### 2.4 Velero BackupStorageLocation
+### 2.4 Blob container reuse
 
-```
-NAME      PHASE         LAST VALIDATED   AGE
-default   Unavailable   19s              3d1h
+A short read-only probe (using the storage-account key from the `minio` k8s Secret, executed inside a PSS-restricted-compliant pod that was deleted post-log-capture) listed the containers in `sampseapmycurex01`. Result: one pre-created container, `blobmpseapmycurex01`, empty. No `velero-backups` container, no `monobase-files` container.
 
-Status message:
-BackupStorageLocation "default" is unavailable:
-rpc error: code = Unknown desc = ContainerNotFound:
-The specified container does not exist.
-```
+`values/infrastructure/main.yaml` (velero) and `values/deployments/medicard.yaml` (hapihub via s3proxy) were updated to reuse `blobmpseapmycurex01` for both. Velero writes under its own prefix; hapihub uses distinct object paths, so cohabitation is safe. Velero's `BackupStorageLocation "default"` should transition to `Available` on its next reconcile — no MediCard-side container creation is needed.
 
-Velero can authenticate to the storage account (the account-key secret is now on the pod) and can reach `sampseapmycurex01` over the network, but the `velero-backups` container inside that account does not exist yet. Was flagged in §3.7 of the bootstrap report as "MediCard's message did not mention creating it". Not a blocker for hapihub / s3proxy; only bites once backups are attempted.
+Earlier framing that the `velero-backups` container was a MediCard-side ask was wrong: the storage-account key we already receive via KV grants us `az storage container list` / `create`. Corrected here for accuracy.
 
 ### 2.5 Summary table (rounds 1 → 2 → 3)
 
