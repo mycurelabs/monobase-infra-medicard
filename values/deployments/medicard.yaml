@@ -99,9 +99,10 @@ hapihub:
     # entry populates a key in the k8s Secret `hapihub-secrets`, which
     # the Deployment references via optional secretKeyRef.
     #
-    # AUTH_SECRET uses the client's exact uppercase KV name — Azure KV
-    # is case-insensitive but matching the Portal listing avoids any
-    # ambiguity in ops handovers.
+    # AUTH_SECRET's KV entry is spelled `medicard-prod-AUTH-SECRET` in
+    # the Azure Portal, but Azure KV secret names are case-insensitive
+    # for both creation and read — the lowercase form here resolves to
+    # the same secret. Keeps our naming consistent with the rest.
     #
     # BETTER_AUTH_SECRET is intentionally not listed — MediCard did not
     # populate it and the env is optional. Add when needed (prod is
@@ -110,7 +111,7 @@ hapihub:
       - secretKey: DATABASE_URI
         remoteKey: medicard-prod-database-uri
       - secretKey: AUTH_SECRET
-        remoteKey: medicard-prod-AUTH-SECRET
+        remoteKey: medicard-prod-auth-secret
       - secretKey: ENC_MEDICAL_RECORDS
         remoteKey: medicard-prod-enc-medical-records
       - secretKey: ENC_PERSONAL_DETAILS
