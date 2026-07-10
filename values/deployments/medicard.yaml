@@ -346,7 +346,8 @@ minio:
 #   2. KV entries populated in kv-mpi-sea-p-mycurex01:
 #      - medicard-prod-azureblob-account-name  (MediCard writes)
 #      - medicard-prod-azureblob-account-key   (MediCard writes)
-#      - medicard-prod-s3proxy-credential      (we write once, random)
+# The S3-side credential (root-password on the `minio` Secret) is minted
+# in-cluster by ESO's Password generator — no external KV entry needed.
 s3proxy:
   enabled: true
   fullnameOverride: minio  # Service + Secret both named `minio`
@@ -355,10 +356,8 @@ s3proxy:
     enabled: true
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
-    refreshInterval: 1h
     azureAccountKey: medicard-prod-azureblob-account-name
     azureBlobKeyKey: medicard-prod-azureblob-account-key
-    s3CredentialKey: medicard-prod-s3proxy-credential
 
   container: monobase-files
 

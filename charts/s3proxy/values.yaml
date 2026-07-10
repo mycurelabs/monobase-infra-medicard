@@ -42,21 +42,18 @@ nodeSelector:
   kubernetes.io/arch: amd64
 
 # ExternalSecret populates the k8s Secret named `minio` with:
-#   root-user            → S3PROXY_IDENTITY  (also read by hapihub)
-#   root-password        → S3PROXY_CREDENTIAL (also read by hapihub)
-#   azureblob-account    → JCLOUDS_IDENTITY
-#   azureblob-key        → JCLOUDS_CREDENTIAL
+#   root-user            → S3PROXY_IDENTITY  (also read by hapihub) — from s3Identity below
+#   root-password        → S3PROXY_CREDENTIAL (also read by hapihub) — minted in-cluster by
+#                                                 the Password generator (password-generator.yaml)
+#   azureblob-account    → JCLOUDS_IDENTITY  (from KV)
+#   azureblob-key        → JCLOUDS_CREDENTIAL (from KV)
 externalSecrets:
   enabled: true
   secretStore: azure-secretstore
   secretStoreKind: ClusterSecretStore
-  refreshInterval: 1h
-  # KV secret names.
-  # azureAccount / azureKey: populated by MediCard in kv-mpi-sea-p-mycurex01.
-  # s3CredentialKey: we populate once with a random 32-char password.
+  # KV secret names for the two Azure Blob keys MediCard populates.
   azureAccountKey: medicard-prod-azureblob-account-name
   azureBlobKeyKey: medicard-prod-azureblob-account-key
-  s3CredentialKey: medicard-prod-s3proxy-credential
 
 # Blob container name — hapihub will pass this as STORAGE_S3_BUCKET.
 # Kept as plain config (not a secret) since it isn't sensitive.
@@ -66,9 +63,9 @@ container: monobase-files
 # (https://<account>.blob.core.windows.net). Only set for sovereign clouds.
 azureblobEndpoint: ""
 
-# S3-side identity used by both s3proxy and hapihub. Generated once via
-# the ExternalSecret's password generator so no MediCard interaction is
-# needed for these values.
+# S3-side identity username used by both s3proxy and hapihub. Not a
+# secret — the corresponding password is minted once by ESO's Password
+# generator; see charts/s3proxy/templates/password-generator.yaml.
 s3Identity: "hapihub"
 
 gateway:
