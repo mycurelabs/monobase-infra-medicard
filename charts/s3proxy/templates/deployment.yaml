@@ -54,12 +54,8 @@ spec:
               value: "true"
             - name: JCLOUDS_PROVIDER
               value: "azureblob"
-            {{- if .Values.azureblobEndpoint }}
-            - name: JCLOUDS_ENDPOINT
-              value: {{ .Values.azureblobEndpoint | quote }}
-            {{- end }}
-            # Credentials + identity from the `minio` Secret (populated by
-            # the ExternalSecret in externalsecret.yaml).
+            # Credentials + identity from the `minio` Secret. JCLOUDS_IDENTITY
+            # must precede JCLOUDS_ENDPOINT so the $(VAR) expansion resolves.
             - name: S3PROXY_IDENTITY
               valueFrom:
                 secretKeyRef:
@@ -80,6 +76,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "s3proxy.fullname" . }}
                   key: azureblob-key
+            # Endpoint — default to the standard commercial Azure suffix,
+            # composed from the account name. Override via values only for
+            # sovereign clouds or custom endpoints.
+            - name: JCLOUDS_ENDPOINT
+              {{- if .Values.azureblobEndpoint }}
+              value: {{ .Values.azureblobEndpoint | quote }}
+              {{- else }}
+              value: "https://$(JCLOUDS_IDENTITY).blob.core.windows.net"
+              {{- end }}
           livenessProbe:
             tcpSocket:
               port: s3

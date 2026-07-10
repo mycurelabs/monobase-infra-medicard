@@ -401,8 +401,9 @@ kyverno:
 # Two upstream items still needed before velero comes up green:
 # 1. MediCard populates KV `medicard-prod-azureblob-account-name` and
 #    -account-key (same entries s3proxy is waiting on).
-# 2. The `velero-backups` blob container exists in the storage account.
-# Until then velero pods stay in CrashLoop; ArgoCD retries cover it.
+# 2. A blob container exists in the storage account. MediCard pre-created
+# `blobmpseapmycurex01`; velero (and s3proxy/hapihub) reuse it — no
+# separate container needed on their side.
 velero:
   enabled: true
   version: 12.0.1
@@ -411,9 +412,10 @@ velero:
     # Same storage account s3proxy writes to. Value also mirrored in KV
     # under medicard-prod-azureblob-account-name.
     storageAccount: "sampseapmycurex01"
-    # Container for backups — must exist before velero starts
-    # (velero does not auto-create containers).
-    blobContainer: "velero-backups"
+    # Reuse MediCard's pre-created container (verified via read-only probe
+    # against the storage account key on 2026-07-10). Velero prefixes its
+    # objects, hapihub uses different paths, so cohabitation is safe.
+    blobContainer: "blobmpseapmycurex01"
   externalSecrets:
     secretStore: azure-secretstore
     azureBlobKeyKey: medicard-prod-azureblob-account-key

@@ -136,7 +136,10 @@ hapihub:
     # advertises itself as a Service named `minio` (fullnameOverride) so
     # hapihub's chart branch works verbatim.
     enabled: true
-    defaultBuckets: "monobase-files"
+    # Reuse MediCard's pre-created Azure Blob container (`blobmpseapmycurex01`)
+    # via s3proxy. Same container velero writes to; hapihub uses distinct
+    # paths so cohabitation is safe.
+    defaultBuckets: "blobmpseapmycurex01"
 
   valkey:
     enabled: false
@@ -359,7 +362,7 @@ s3proxy:
     azureAccountKey: medicard-prod-azureblob-account-name
     azureBlobKeyKey: medicard-prod-azureblob-account-key
 
-  container: monobase-files
+  container: blobmpseapmycurex01
 
   gateway:
     enabled: true
