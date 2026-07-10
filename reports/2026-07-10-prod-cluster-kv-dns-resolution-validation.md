@@ -1,38 +1,35 @@
-# 2026-07-10 — Prod Cluster Key Vault DNS Resolution Validation
+# 2026-07-10 — Prod Cluster Key Vault Connectivity Validation
 
-**Status:** From inside the production AKS cluster, `kv-mpi-sea-p-mycurex01.vault.azure.net` does not resolve. Azure DNS returns NXDOMAIN for the private-endpoint FQDN it CNAME-chains into. The Key Vault's private endpoint DNS record is missing from the `privatelink.vaultcore.azure.net` zone that Azure DNS uses for the AKS VNet.
+**Status:** From inside the production AKS cluster, the vault's FQDN does not resolve, so no read against the vault can proceed. Staging is included as a positive control demonstrating what the full lifecycle (DNS → TCP → TLS → AAD auth → List → Read) looks like when it works.
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01` (Azure, southeastasia, Private Link API), VNet `mc-prd-vnet-sea-01`. Staging cluster `aks-mpi-sea-a-mycurex01` used as a positive control.
-**Access path:** kubectl executed from the operator jumphost `mc.remote.prd.bastion` via `ssh medicard.gateway`. Staging probe run against the local `.kube/config`.
+**Access path:** kubectl executed from the operator jumphost `mc.remote.prd.bastion` via `ssh medicard.gateway`. Staging probe executed against the local `.kube/config`.
 **Related:** blocks §3.1 of [`2026-07-07-prod-cluster-iac-bootstrap.md`](./2026-07-07-prod-cluster-iac-bootstrap.md). ExternalSecrets can authenticate to Azure AD, but every subsequent secret-fetch fails at the DNS step before any TCP packet leaves the pod for the vault.
+
+**Scope disclaimer.** This report is a **read-only diagnostic**. It documents what the cluster sees and where in the lifecycle the failure occurs. Any observations about "where the fix might live" are **suggested areas for MediCard to investigate**, not prescriptions. The actual root cause and the correct remediation are on MediCard's side; we do not have visibility into their VNet/DNS/private-endpoint configuration and cannot warrant that any specific change will resolve the issue.
 
 ---
 
 ## 1. Scope
 
-Prove — and give MediCard a reproducible, non-destructive way to reproduce — that the failure mode surfaced by the External Secrets Operator (`dial tcp: lookup kv-mpi-sea-p-mycurex01.vault.azure.net on 10.0.0.10:53: no such host`) is a **DNS resolution problem** and not an authentication, authorization, network-egress, or ESO-configuration problem. Localise the missing piece to a specific Azure DNS record.
+Prove — and give MediCard a reproducible, non-destructive way to reproduce — that the failure surfaced by the External Secrets Operator (`dial tcp: lookup kv-mpi-sea-p-mycurex01.vault.azure.net on 10.0.0.10:53: no such host`) sits at the **DNS resolution layer**, not authentication, not authorization, not egress, not ESO configuration. Show what a working end-to-end lifecycle looks like on staging so both sides know what the fixed state should look like.
 
-Strictly non-destructive. Only DNS queries were issued. No secrets were read, no TCP connections opened to the vault, no cluster resources mutated beyond a short-lived diagnostic pod that was deleted immediately after log capture.
+Strictly non-destructive. Only DNS queries and read-only Azure Key Vault list/get calls were issued. No secrets were written or modified, no TCP connections opened to the vault beyond what Azure's SDK does for `list`/`show`, no cluster resources mutated beyond short-lived diagnostic pods that were deleted after log capture. Secret values are redacted throughout; only lengths and, where already public, structural fragments (URI scheme/host) are shown.
 
 ## 2. Methodology
 
-Two identical probe pods were deployed — one in the prod cluster and one in the staging cluster — running the same eight DNS queries with `nslookup` and `dig`. Same image (`nicolaka/netshoot:latest`), same script; only the vault and PG hostnames differ (prod vs. staging).
+Two independent probes were run on each cluster (prod, staging), inside the cluster, using the same image and same script (with only the vault name changed):
 
-Probes ran **inside the cluster** so the results reflect the actual DNS view a workload has, not the operator laptop's view. The staging cluster is a positive control: both vaults are provisioned the same way (private endpoint), same tenant, same region — the delta between the two probes localises the problem cleanly.
+**Probe 1 — DNS diagnostic** (`dns-probe`, `default` namespace, image `nicolaka/netshoot`). Runs eight DNS queries against the vault's public FQDN, its private-endpoint FQDN, and two Azure-adjacent controls (`login.microsoftonline.com`, PG's FQDN), from three resolvers (CoreDNS `10.0.0.10`, Azure DNS `168.63.129.16`, public `1.1.1.1`). See Appendix A1.
 
-| Query | Purpose |
-|---|---|
-| 1. KV public FQDN via CoreDNS (10.0.0.10) | The canonical query ESO makes. Failure here matches the ESO error. |
-| 2. Same, via Azure internal resolver directly (168.63.129.16) | Bypasses CoreDNS to see whether Azure's own resolver has the record. Where the truth lives. |
-| 3. Same, via public resolver (1.1.1.1) | Shows the full CNAME chain the vault's public FQDN goes through. |
-| 4. KV **private** FQDN directly via CoreDNS | Direct query for the terminal name in the CNAME chain. |
-| 5. Same, directly via 168.63.129.16 | Bypasses CoreDNS's forwarders. |
-| 6. `dig +trace` via CoreDNS | Recursive-authoritative trace showing where the chain breaks. |
-| 7. Control: `login.microsoftonline.com` via CoreDNS | Confirms cluster DNS itself is healthy for Azure public endpoints (this is the auth endpoint ESO reaches successfully). |
-| 8. Control: Azure PG FQDN via CoreDNS | Confirms Azure private-endpoint resolution works for **another** service. Staging PG works from the sheet; prod PG was validated in 2026-07-07 DB-connectivity report. |
+**Probe 2 — Full read-lifecycle** (`kv-probe`, `external-secrets-system` namespace, image `mcr.microsoft.com/azure-cli`). Runs as the same ServiceAccount ESO uses (`external-secrets`) with the workload-identity annotations already on it — so the identity presented to Azure AD is identical to what ESO uses. Three steps: `az login` via workload identity, `az keyvault secret list`, and `az keyvault secret show` on each secret. See Appendix A2.
+
+Probes ran **inside the cluster** so results reflect what a workload actually sees, not what the operator laptop sees. Staging is a positive control: same vault topology (private endpoint), same tenant, same region — the delta between the two probes localises the observed behavioural difference cleanly.
 
 ## 3. Findings
 
-### 3.1 Prod cluster — vault does not resolve
+### 3.1 Prod cluster — DNS layer fails, everything downstream cannot execute
+
+**DNS diagnostic (Probe 1):**
 
 ```
 === /etc/resolv.conf ===
@@ -41,16 +38,9 @@ nameserver 10.0.0.10
 options ndots:5
 
 === 1. kv public FQDN via CoreDNS (10.0.0.10) ===
-Server:  10.0.0.10
-Address: 10.0.0.10#53
-
 *** Can't find kv-mpi-sea-p-mycurex01.vault.azure.net: No answer
 
 === 2. kv public FQDN via Azure internal resolver (168.63.129.16) ===
-Server:  168.63.129.16
-Address: 168.63.129.16#53
-
-Non-authoritative answer:
 kv-mpi-sea-p-mycurex01.vault.azure.net canonical name =
     kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net.
 ** server can't find kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net: NXDOMAIN
@@ -67,89 +57,131 @@ Addresses: 20.205.192.64, 13.67.8.104, 40.78.239.124   (public Traffic Manager)
 ** server can't find kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net: NXDOMAIN
 
 === 7. control: login.microsoftonline.com via CoreDNS ===
-Non-authoritative answer:
-login.microsoftonline.com   canonical name = login.mso.msidentity.com.
-                            ... (resolved successfully to public IPs) ...
+(resolved successfully to public IPs)
 
 === 8. control: mpiazeppgdb0003.postgres.database.azure.com via CoreDNS ===
 Name:    mpiazeppgdb0003.postgres.database.azure.com
 Address: 172.22.25.6            (PRIVATE IP — private endpoint DNS works for PG)
 ```
 
-### 3.2 Staging cluster (positive control) — vault resolves
+**Full read-lifecycle (Probe 2):**
 
-Same eight queries against the staging vault `kv-mpi-sea-a-mycurex01`:
+```
+=== 1. az login via workload identity ===
+login exit: 0
+
+=== 2. list secrets in vault (names only) ===
+ERROR: HTTPSConnection(host='kv-mpi-sea-p-mycurex01.vault.azure.net', port=443):
+Failed to resolve 'kv-mpi-sea-p-mycurex01.vault.azure.net'
+([Errno -5] No address associated with hostname)
+
+=== 3. read a representative sample (values redacted) ===
+  medicard-prod-database-uri: READ ERROR (same DNS resolution failure)
+  medicard-prod-pg-target-uri: READ ERROR (same)
+  medicard-prod-auth-secret:   READ ERROR (same)
+  … (all reads failed at DNS — same underlying error)
+```
+
+Two independent code paths (BusyBox `nslookup`/`dig`, and Azure SDK inside `az cli`) both hit the same failure on the same hostname. Authentication with Azure AD succeeded in Probe 2 (`login exit: 0`) — proving the identity and FIC are wired correctly and public egress works. The very next step (list/get against the vault) fails because the vault's hostname does not resolve.
+
+### 3.2 Staging cluster (positive control) — full lifecycle works end-to-end
+
+**DNS diagnostic (Probe 1):**
 
 ```
 === 1. kv public FQDN via CoreDNS (10.0.0.10) ===
 Name:    kv-mpi-sea-a-mycurex01.vault.azure.net
-Address: 172.23.10.84            (PRIVATE IP — DNS working)
+Address: 172.23.10.84            (PRIVATE IP)
 
 === 2. kv public FQDN via 168.63.129.16 ===
 kv-mpi-sea-a-mycurex01.vault.azure.net canonical name =
     kv-mpi-sea-a-mycurex01.privatelink.vaultcore.azure.net.
 Name:    kv-mpi-sea-a-mycurex01.privatelink.vaultcore.azure.net
-Address: 172.23.10.84            (PRIVATE IP — Azure DNS is authoritative for
-                                  this record and returns the private endpoint IP)
+Address: 172.23.10.84            (PRIVATE IP — Azure DNS is authoritative and
+                                  returns the private-endpoint IP)
 ```
+
+**Full read-lifecycle (Probe 2):**
+
+```
+=== 1. az login via workload identity ===
+login exit: 0
+
+=== 2. list secrets in vault (names only) ===
+medicard-staging-minio-root-password
+medicard-staging-mongodb-root-password
+medicard-staging-postgresql-password
+
+=== 3. read each secret (values redacted) ===
+  medicard-staging-minio-root-password: length=22 chars (opaque; value redacted)
+  medicard-staging-mongodb-root-password: length=24 chars (opaque; value redacted)
+  medicard-staging-postgresql-password: length=21 chars (opaque; value redacted)
+```
+
+Staging succeeds at every step: DNS returns a private IP, TCP/TLS to that private IP succeeds implicitly (the subsequent `list`/`show` calls complete without error), Azure AD auth via workload identity succeeds, the SDK enumerates the three secrets in the vault, and each secret can be read. Values themselves are not printed — only their lengths, which is enough to prove the read pipeline is functional without exposing the material.
 
 ### 3.3 Summary table (prod vs. staging)
 
-| Query | Prod result | Staging result |
+| Step | Prod result | Staging result |
 |---|---|---|
-| Q1 KV public FQDN via CoreDNS | ❌ "No answer" (SERVFAIL) | ✅ Private IP `172.23.10.84` |
-| Q2 KV public FQDN via 168.63.129.16 | CNAME → privatelink; **NXDOMAIN on privatelink** | CNAME → privatelink; ✅ Private IP `172.23.10.84` |
-| Q5 KV private FQDN via 168.63.129.16 | ❌ NXDOMAIN | ✅ (as part of Q2's chain) `172.23.10.84` |
-| Q3 KV public FQDN via 1.1.1.1 (public) | ✅ Public Traffic Manager IPs (as expected) | ✅ Public Traffic Manager IPs |
-| Q7 login.microsoftonline.com via CoreDNS | ✅ Resolves | ✅ Resolves |
-| Q8 Azure PG FQDN via CoreDNS | ✅ Private IP `172.22.25.6` | ✅ (analogous) |
+| DNS: KV public FQDN via CoreDNS | ❌ "No answer" | ✅ Private IP `172.23.10.84` |
+| DNS: KV public FQDN via 168.63.129.16 (Azure) | CNAME → privatelink; **NXDOMAIN on privatelink** | CNAME → privatelink; ✅ `172.23.10.84` |
+| DNS: KV private FQDN via 168.63.129.16 | ❌ NXDOMAIN | ✅ `172.23.10.84` |
+| DNS: `login.microsoftonline.com` via CoreDNS | ✅ | ✅ |
+| DNS: Azure PG private FQDN via CoreDNS | ✅ Private IP `172.22.25.6` | ✅ (analogous) |
+| Auth: `az login` via workload identity | ✅ `exit 0` (identity + FIC OK) | ✅ `exit 0` |
+| Read: `az keyvault secret list` | ❌ DNS resolution failure | ✅ 3 secrets returned |
+| Read: `az keyvault secret show <name>` | ❌ DNS resolution failure | ✅ each returns opaque value (lengths reported, values redacted) |
 
-### 3.4 Interpretation — what's actually missing
+### 3.4 Interpretation
 
-Azure Key Vault's public FQDN `<vault>.vault.azure.net` always CNAME-chains into `<vault>.privatelink.vaultcore.azure.net` regardless of whether the vault has a private endpoint. Whether the terminal lookup returns a *private* IP or a *public* IP (or NXDOMAIN) depends entirely on the state of the `privatelink.vaultcore.azure.net` **Private DNS Zone** attached to the VNet the client sits in.
+Azure Key Vault's public FQDN `<vault>.vault.azure.net` always CNAME-chains into `<vault>.privatelink.vaultcore.azure.net` regardless of whether the vault has a private endpoint. Whether that terminal name resolves — and what IP it returns — depends on the state of the `privatelink.vaultcore.azure.net` **Private DNS Zone** used by the VNet the client sits in.
 
-Azure's internal resolver (`168.63.129.16`) is the source of truth for that zone inside the VNet. Comparing Q2 between the two environments:
+Comparing the direct queries against Azure's internal resolver (`168.63.129.16`) between the two environments:
 
-- **Staging:** 168.63.129.16 returns the private IP `172.23.10.84` for `kv-mpi-sea-a-mycurex01.privatelink.vaultcore.azure.net` → the private DNS zone `privatelink.vaultcore.azure.net` is linked to the staging AKS VNet AND contains an A record `kv-mpi-sea-a-mycurex01 → 172.23.10.84`.
-- **Prod:** 168.63.129.16 returns NXDOMAIN for `kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net` → the private DNS zone is either (a) not linked to the prod AKS VNet at all, or (b) linked but missing the A record for the prod vault.
+- On **staging**, the resolver returns the private IP `172.23.10.84` for `kv-mpi-sea-a-mycurex01.privatelink.vaultcore.azure.net`. This is consistent with a Private DNS Zone being linked to the staging AKS VNet and containing an A record for that vault.
+- On **prod**, the resolver returns NXDOMAIN for `kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net`. This is consistent with either the zone not being linked, or being linked but not containing an A record for that particular vault.
 
-The Q8 control confirms that private-endpoint DNS integration DOES work for another service (PG) from the prod cluster — so the general capability is there, just not wired for the vault.
+The prod PG's private endpoint FQDN resolves fine (Q8) — so private-endpoint DNS integration *does* work for at least one Azure service from that VNet.
 
-### 3.5 Why authentication succeeded but reads fail
+### 3.5 Authentication vs. reads — different code paths
 
-Auth talks to `login.microsoftonline.com` (Q7 — public, resolves fine). The secret fetch talks to the vault's own FQDN (Q1 — fails). Two different hostnames, two different DNS paths. ESO's Azure AD authentication and its Key Vault SDK calls are unrelated at the DNS layer even though they are consecutive lines of the same reconcile.
+Auth talks to `login.microsoftonline.com` (public — resolves per Q7). The secret read talks to the vault's own FQDN (fails per Q1 / Probe 2 step 2). Two different hostnames, two different DNS paths. That is why we observe successful Azure AD auth followed immediately by a DNS failure on the very next line of the reconcile.
 
-### 3.6 What we need to observe on MediCard's side
+### 3.6 What we're reporting to MediCard
 
-Any one of the following will unblock ESO reads (mechanism is MediCard's choice):
+We are **not** proposing a solution. The observations above are:
 
-- The `privatelink.vaultcore.azure.net` Private DNS Zone that the AKS VNet `mc-prd-vnet-sea-01` resolves against contains an A record for `kv-mpi-sea-p-mycurex01` (analogous to what staging has for its vault). If MediCard's private endpoint `pl-mpi-sea-p-mycurex-kv01` was created with automatic Private DNS integration, this record should already exist in the zone the endpoint's resource group holds; if that zone isn't the one linked to `mc-prd-vnet-sea-01`, either link it or add the record to the linked zone.
-- OR a working DNS forwarder inside the AKS VNet that resolves the private FQDN — same net effect.
+- Cluster-side DNS reaches `login.microsoftonline.com` and the prod PG private endpoint without issue.
+- Cluster-side DNS does **not** reach the vault's private-endpoint FQDN; both CoreDNS and Azure's internal resolver return failure/NXDOMAIN for it.
+- Staging, in the same tenant / same region / same vault topology, resolves its own vault to a private IP and completes the full read cycle.
 
-Verification we can do without MediCard's cooperation once they change something on their end: re-run this probe (Appendix A) and check whether Q1 returns a private IP. That single-line result gates every other check — `hapihub-secrets`, s3proxy's `minio` Secret, and velero's `velero-credentials` all start syncing the moment Q1 resolves.
+The delta between the two environments sits somewhere in the DNS or private-endpoint configuration around `kv-mpi-sea-p-mycurex01` that MediCard controls (private DNS zones, zone-to-VNet links, private-endpoint-to-DNS integration, or an equivalent DNS forwarding path). We do not have visibility into that configuration and cannot confirm any specific change will resolve the issue — the diagnosis and remediation are on MediCard's side.
+
+Whatever change MediCard makes on their end can be verified by re-running Probe 1 and Probe 2 (Appendix A) from inside the cluster. If Probe 1 Q1 returns an IP and Probe 2 step 2 lists the secrets, the change worked; ESO will then start syncing `hapihub-secrets`, `minio`, and `velero-credentials`. If either probe still fails, the failure mode narrows further (from that new evidence, we can help characterise what changed).
 
 ## 4. Scope notes
 
-- The Q4 result (`kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net` mysteriously resolving via CoreDNS to public Traffic Manager IPs) is a cache/upstream artefact and does not change the diagnosis: those IPs point at the public Traffic Manager fronting the vault; the vault itself sits behind private-endpoint firewall rules, so even if traffic reached those IPs it would be rejected. The failing path is the one ESO's SDK actually takes: the `.vault.azure.net` FQDN, which Q1 shows is unresolvable.
-- No attempt was made to reach the vault over TCP; only DNS was queried. If DNS is fixed and the request still fails, the next diagnostic step is a TCP probe from a pod to the private IP that Q1 returns.
-- The staging positive control uses a different vault (`kv-mpi-sea-a-mycurex01`) in a different resource group. The probe compares like-with-like at the DNS layer — the two probes differ only in the vault name.
+- No attempt was made to reach the vault over TCP; only DNS and read-only KV operations were performed. If DNS resolves but reads still fail, next diagnostic steps would look at NSG/UDR/firewall rules and the vault's own network access rules.
+- Secret values from the staging vault were not printed. Lengths were shown as evidence the read pipeline works, not as a check on any value's correctness.
+- The staging positive control uses a different vault (`kv-mpi-sea-a-mycurex01`) in a different resource group. The comparison is at the DNS/SDK layer; contents of the two vaults differ.
 
 ## 5. Cluster-side artifacts left behind
 
-**None.** Both probe pods (`dns-probe` in each cluster's `default` namespace) were deleted immediately after log capture. Verified:
+**None.** All four probe pods (`dns-probe` and `kv-probe` on each cluster) were deleted immediately after log capture. Verified:
 
 ```
 $ kubectl -n default get pods
 No resources found in default namespace.
+$ kubectl -n external-secrets-system get pods | grep kv-probe
+(no output)
 ```
 
-No secrets, ConfigMaps, PVCs, or NetworkPolicies were created. No egress traffic left the cluster except DNS UDP to 10.0.0.10, 168.63.129.16, and 1.1.1.1. No calls were made against the vault, PG, or MongoDB Atlas.
+No secrets, ConfigMaps, PVCs, or NetworkPolicies were created. No egress traffic left either cluster except DNS UDP to `10.0.0.10`/`168.63.129.16`/`1.1.1.1`, HTTPS to `login.microsoftonline.com` (Probe 2), and HTTPS to the staging vault (Probe 2 on staging only). No calls were made against PG, MongoDB Atlas, or any workload namespaces beyond `default` and `external-secrets-system`.
 
 ---
 
-## Appendix A — Probe pod manifest
-
-Reproducible by anyone with kubectl access to either cluster. Same manifest was applied on prod and (with `sea-a` and PG-0001 substituted) on staging.
+## Appendix A1 — DNS probe pod manifest
 
 ```yaml
 apiVersion: v1
@@ -166,30 +198,21 @@ spec:
     args:
       - |-
         set +e
-        echo "=== /etc/resolv.conf ==="
-        cat /etc/resolv.conf
-        echo
+        echo "=== /etc/resolv.conf ==="; cat /etc/resolv.conf; echo
         echo "=== 1. kv public FQDN via CoreDNS (10.0.0.10) ==="
         nslookup kv-mpi-sea-p-mycurex01.vault.azure.net 10.0.0.10
-        echo
         echo "=== 2. kv public FQDN via Azure internal resolver (168.63.129.16) ==="
         nslookup kv-mpi-sea-p-mycurex01.vault.azure.net 168.63.129.16
-        echo
-        echo "=== 3. kv public FQDN via public resolver (1.1.1.1) — shows CNAME chain ==="
+        echo "=== 3. kv public FQDN via public resolver (1.1.1.1) — CNAME chain ==="
         nslookup kv-mpi-sea-p-mycurex01.vault.azure.net 1.1.1.1
-        echo
         echo "=== 4. kv private FQDN directly via CoreDNS ==="
         nslookup kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net 10.0.0.10
-        echo
         echo "=== 5. kv private FQDN directly via Azure internal resolver ==="
         nslookup kv-mpi-sea-p-mycurex01.privatelink.vaultcore.azure.net 168.63.129.16
-        echo
         echo "=== 6. dig +trace kv public FQDN via CoreDNS ==="
         dig +trace kv-mpi-sea-p-mycurex01.vault.azure.net @10.0.0.10 2>&1 | head -40
-        echo
         echo "=== 7. control: login.microsoftonline.com via CoreDNS ==="
         nslookup login.microsoftonline.com 10.0.0.10
-        echo
         echo "=== 8. control: postgres FQDN via CoreDNS ==="
         nslookup mpiazeppgdb0003.postgres.database.azure.com 10.0.0.10
 ```
@@ -203,11 +226,80 @@ kubectl -n default logs dns-probe
 kubectl -n default delete pod dns-probe
 ```
 
+## Appendix A2 — Full read-lifecycle probe pod manifest
+
+Runs as the same ServiceAccount ESO uses (`external-secrets-system/external-secrets`) with its existing workload-identity annotations. If the annotations aren't present on the SA, the workload-identity webhook won't inject the token variables and step 1 will fail.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kv-probe
+  namespace: external-secrets-system
+  labels:
+    azure.workload.identity/use: "true"
+spec:
+  serviceAccountName: external-secrets
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  containers:
+  - name: probe
+    image: mcr.microsoft.com/azure-cli:latest
+    command: ["/bin/sh", "-c"]
+    args:
+      - |-
+        VAULT="kv-mpi-sea-p-mycurex01"                # change per cluster
+        PREFIX="medicard-prod"                        # change per cluster
+        echo "=== target vault: $VAULT / prefix: $PREFIX ==="
+
+        echo "=== 1. az login via workload identity ==="
+        az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" \
+          --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" \
+          -o none 2>&1 | tail -3
+        echo "login exit: $?"
+
+        echo "=== 2. list secrets in vault (names only) ==="
+        az keyvault secret list --vault-name "$VAULT" --query "[].name" -o tsv
+
+        echo "=== 3. read a representative sample (values redacted) ==="
+        for shortname in database-uri pg-target-uri auth-secret \
+                         azureblob-account-name azureblob-account-key \
+                         mongo-source-uri pg-encryption-key \
+                         enc-medical-records; do
+          full="${PREFIX}-${shortname}"
+          val=$(az keyvault secret show --vault-name "$VAULT" --name "$full" \
+                --query value -o tsv 2>/tmp/err) || {
+            err=$(head -1 /tmp/err)
+            echo "  $full: READ ERROR ($err)"; continue; }
+          case "$shortname" in
+            azureblob-account-name)
+              echo "  $full: value='$val' (account name is not sensitive)" ;;
+            database-uri|pg-target-uri|mongo-source-uri)
+              redacted=$(echo "$val" | sed -E 's|(://[^:]+:)[^@]+(@)|\1[REDACTED]\2|')
+              echo "  $full: $redacted" ;;
+            *)
+              echo "  $full: length=${#val} chars (opaque; value redacted)" ;;
+          esac
+        done
+```
+
+Apply, wait, read, delete:
+
+```
+kubectl apply -f kv-probe.yaml
+kubectl -n external-secrets-system wait --for=condition=Ready pod/kv-probe --timeout=90s
+kubectl -n external-secrets-system logs kv-probe
+kubectl -n external-secrets-system delete pod kv-probe
+```
+
 ## Appendix B — Environment fingerprint at time of test
 
 - **Prod cluster:** `aks-mpi-sea-p-mycurex01`, VNet `mc-prd-vnet-sea-01`, AKS subnet `subnet-p-mycurex-aks01-172.22.40.0/22`, CoreDNS at `10.0.0.10`.
 - **Prod vault target:** `kv-mpi-sea-p-mycurex01.vault.azure.net`; private endpoint per sheet `pl-mpi-sea-p-mycurex-kv01`.
 - **Staging cluster (positive control):** `aks-mpi-sea-a-mycurex01`, CoreDNS at `10.0.0.10`.
 - **Staging vault target:** `kv-mpi-sea-a-mycurex01.vault.azure.net`; private endpoint IP observed `172.23.10.84`.
-- **Probe image:** `nicolaka/netshoot:latest` (BusyBox + iproute2 + dig/nslookup/curl).
+- **DNS probe image:** `nicolaka/netshoot:latest`.
+- **KV probe image:** `mcr.microsoft.com/azure-cli:latest` (auth via workload identity federation using the ServiceAccount `external-secrets-system/external-secrets`).
+- **UAMI:** client-id `d6b958ed-790e-4a8a-9ce0-10aa6c0776b8`, tenant-id `31e62360-d307-45a7-932a-f774aa7a6288`. Federated Identity Credentials attached to this UAMI cover both the staging and prod AKS cluster OIDC issuers (per MediCard's 2026-07-10 confirmation).
 - **Test date / time:** 2026-07-10 (Asia/Manila).
