@@ -76,17 +76,22 @@ velero      velero-credentials   SecretSynced   Secret created with AZURE_STORAG
 ### 2.3 Downstream pod state
 
 - **`mycure`** — 1/1 Running.
-- **`hapihub`** — 1/1 Running. Pod logs show a real Postgres connection to `mpiazeppgdb0003`; the SQLite fallback is gone.
-- **`minio`** (s3proxy fronting as `minio`) — 1/1 Running. S3 API is reachable at `http://minio.medicard.svc.cluster.local:9000`; hapihub's `STORAGE_S3_*` env vars point here.
+- **`minio`** (s3proxy fronting as `minio`) — 1/1 Running after the chart fix that defaults `JCLOUDS_ENDPOINT` to `https://$(JCLOUDS_IDENTITY).blob.core.windows.net`.
 - **`velero`** and **`node-agent-*`** — all 1/1 Running.
+- **`hapihub`** — new ReplicaSet's pod is `CrashLoopBackOff`. Both `hapihub-secrets` and `minio` Secrets are present and mounted; connection to `mpiazeppgdb0003` completes network + TLS + auth. Postgres then returns:
+  ```
+  error: permission denied for database postgres
+  code: 42501
+  file: aclchk.c
+  routine: aclcheck_error
+  ```
+  The `mycure_prod_app` role can log in but does not have the object-level privileges hapihub needs on the target database/schemas.
 
 ### 2.4 Blob container reuse
 
 A short read-only probe (using the storage-account key from the `minio` k8s Secret, executed inside a PSS-restricted-compliant pod that was deleted post-log-capture) listed the containers in `sampseapmycurex01`. Result: one pre-created container, `blobmpseapmycurex01`, empty. No `velero-backups` container, no `monobase-files` container.
 
-`values/infrastructure/main.yaml` (velero) and `values/deployments/medicard.yaml` (hapihub via s3proxy) were updated to reuse `blobmpseapmycurex01` for both. Velero writes under its own prefix; hapihub uses distinct object paths, so cohabitation is safe. Velero's `BackupStorageLocation "default"` should transition to `Available` on its next reconcile — no MediCard-side container creation is needed.
-
-Earlier framing that the `velero-backups` container was a MediCard-side ask was wrong: the storage-account key we already receive via KV grants us `az storage container list` / `create`. Corrected here for accuracy.
+`values/infrastructure/main.yaml` (velero) and `values/deployments/medicard.yaml` (hapihub via s3proxy) were updated to reuse `blobmpseapmycurex01` for both. Velero writes under its own prefix; hapihub uses distinct object paths, so cohabitation is safe. Velero's `BackupStorageLocation "default"` transitions to `Available` after the reconcile — no MediCard-side container creation is needed.
 
 ### 2.5 Summary table (rounds 1 → 2 → 3)
 
@@ -101,19 +106,19 @@ Earlier framing that the `velero-backups` container was a MediCard-side ask was 
 | ExternalSecret `minio-credentials` | ❌ (DNS) | ❌ (403) | ✅ `SecretSynced` (Password generator + KV) |
 | Workload pods: `mycure` | ✅ | ✅ | ✅ |
 | Workload pods: `velero` + node-agents | ❌ Init | ❌ Init | ✅ 1/1 Running |
-| Workload pods: `hapihub` (new RS) | ❌ CCCE | ❌ CCCE | ✅ 1/1 Running (PG connection to `mpiazeppgdb0003`) |
+| Workload pods: `hapihub` (new RS) | ❌ CCCE | ❌ CCCE | ❌ `CrashLoopBackOff` — Postgres `permission denied for database postgres` (SQLSTATE 42501) |
 | Workload pods: s3proxy-as-`minio` | ❌ CCCE | ❌ CCCE | ✅ 1/1 Running |
-| Velero BSL | (not deployed) | (blocked) | `Unavailable` — ContainerNotFound |
+| Velero BSL | (not deployed) | (blocked) | ✅ `Available` (re-pointed to `blobmpseapmycurex01`) |
 
 ### 2.6 What we're reporting
 
-The application layer is now green — hapihub, s3proxy, mycure, velero all running with real DB connectivity and real Azure Blob storage. One narrow, low-priority item remains:
+One narrow MediCard-side item remains:
 
-- **MediCard-side**: the `velero-backups` blob container inside `sampseapmycurex01`. Was flagged in the bootstrap report; still not observed to exist. Non-blocker for hapihub/s3proxy/mycure. Only matters when a backup is attempted; velero's BackupStorageLocation stays `Unavailable` until the container exists.
+- **Postgres object grants for the `mycure_prod_app` role.** Connectivity, TLS, and login authentication all succeed against `mpiazeppgdb0003`. The role then hits `permission denied for database postgres` (SQLSTATE 42501) when hapihub tries to run its schema-init / general operations. The specific grants hapihub needs (CONNECT / USAGE / CREATE / and object-level privileges on the target schemas) are on the MediCard DBA to determine. The verbatim error is preserved in §2.3.
 
 ## 3. Cluster-side artifacts left behind
 
-**None.** The `kv-probe` was deleted after log capture. No secrets, ConfigMaps, PVCs, or NetworkPolicies were created. Only egress: DNS + HTTPS to Azure AD and the vault.
+**None.** Both diagnostic pods (`kv-probe` for the vault read cycle, `blob-probe` for the storage-account container listing) were deleted after log capture. No secrets, ConfigMaps, PVCs, or NetworkPolicies were created. Only egress: DNS + HTTPS to Azure AD, the vault, and the storage account.
 
 ---
 
