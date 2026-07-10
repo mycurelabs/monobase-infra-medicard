@@ -1,6 +1,6 @@
 # 2026-07-07 — Prod Cluster IaC Bootstrap
 
-**Status:** ArgoCD + all infrastructure Applications deployed. Monitoring (Prometheus + Grafana + Alertmanager + Loki + Promtail) is green. Application-layer workloads (hapihub, s3proxy, velero) are queued on a single upstream blocker: the ExternalSecrets operator can't authenticate to Azure Key Vault, so the Secrets those pods depend on are never created. Mycure and the migrator scaffold are green.
+**Status:** ArgoCD + all infrastructure Applications deployed. Monitoring (Prometheus + Grafana + Alertmanager + Loki + Promtail) is green. ESO now authenticates to Azure AD (MediCard added the missing FIC) — but the vault's private FQDN doesn't resolve from inside the AKS VNet, so ExternalSecret reads still fail at the DNS step. Application-layer workloads (hapihub, s3proxy, velero) remain queued on that single upstream blocker; the Secrets those pods depend on can't be created until the vault becomes reachable. Mycure and the migrator scaffold are green.
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01` (Azure, southeastasia, Private Link API).
 **Access path:** all `kubectl` / `helm` from operator jumphost `mc.remote.prd.bastion` via `ssh medicard.gateway`.
 **Prior state:** see [`2026-07-07-prod-cluster-database-connectivity-validation.md`](./2026-07-07-prod-cluster-database-connectivity-validation.md) — cluster held only system namespaces at start of this run.
@@ -80,13 +80,13 @@ Once resolved, §3.2 unblocks.
 
 ### 3.2 Application pods
 
-- **`hapihub`** — pod in `CreateContainerConfigError`. The Deployment references a k8s Secret (`hapihub-secrets` for DATABASE_URI / AUTH_SECRET / etc., and `minio` for its S3 client) which the ExternalSecrets operator can't create until §3.1 clears.
-- **`s3proxy`** — pod in `CreateContainerConfigError`, same root cause: the k8s Secret it reads (which also happens to be named `minio` — see §3.5 for why) isn't there because ESO can't sync it.
-- **`velero`** — pod in `Init` waiting on `MountVolume.SetUp failed for volume "cloud-credentials" : secret "velero-credentials" not found`. Same root cause — ESO can't sync the `velero-credentials` Secret because §3.1. See §3.7.
+- **`hapihub`** — pod in `CreateContainerConfigError`. Deployment references the `hapihub-secrets` and `minio` Secrets; both are ESO-managed and blocked by the §3.1 DNS issue. Chart-side, `values/deployments/medicard.yaml` now wires an ExternalSecret pulling seven entries from KV (DATABASE_URI, AUTH_SECRET, and the five per-table encryption keys), so the moment §3.1 clears, `hapihub-secrets` gets created and hapihub restarts onto the real DB.
+- **`s3proxy`** — pod in `CreateContainerConfigError`, same root cause: the k8s Secret it reads (literally named `minio` — see §3.5) requires the vault-reachability §3.1 clears.
+- **`velero`** — pod in `Init` waiting on `MountVolume.SetUp failed for volume "cloud-credentials" : secret "velero-credentials" not found`. Same root cause. See §3.7.
 - **`mycure`** — 1/1 Running. No external-secret dependency; unaffected.
 - **`hapihub-migrator`** — 0/0 replicas as designed. Present in cluster; requires an explicit config change on our side to un-pause once data-cutover time comes.
 
-`hapihub`, `s3proxy`, and `velero` all come up together the moment §3.1 clears and the KV entries in §3.4 land — one blocker unblocks all three.
+`hapihub`, `s3proxy`, and `velero` all come up together the moment §3.1 clears — one blocker unblocks all three.
 
 ### 3.3 Envoy LoadBalancer internal IP: `172.22.40.10`
 
@@ -156,14 +156,13 @@ s3proxy is deployed alongside the ExternalSecret configured to read Azure Blob c
 
 The third KV entry, `medicard-prod-s3proxy-credential`, is not a MediCard dependency — it's an internal-to-cluster S3 credential we write once at any time and rotate at our discretion.
 
-### 3.7 Velero backups — same blocker as s3proxy, plus one extra
+### 3.7 Velero backups — waiting on §3.1 DNS + one container check
 
-Velero 1.18 (chart 12.0.1) is deployed to namespace `velero`, azure provider, storage-account-key auth. It reuses the same KV entries s3proxy is waiting on (`medicard-prod-azureblob-account-name`, `-account-key`) so there's no dedicated backup identity to provision. Once §3.1 (ESO) clears and those two KV entries exist, the `velero-credentials` k8s Secret gets created and velero pods complete their init.
+Velero 1.18 (chart 12.0.1) is deployed to namespace `velero`, azure provider, storage-account-key auth. It reuses the same KV entries s3proxy is waiting on (`medicard-prod-azureblob-account-name`, `medicard-prod-azureblob-account-key`) — no dedicated backup identity. Storage account is `sampseapmycurex01`; that value now lives in `values/infrastructure/main.yaml` under `velero.azure.storageAccount`. Once §3.1 DNS clears, the `velero-credentials` k8s Secret gets created and velero pods complete init.
 
-Two extra items specific to backups (both MediCard-observable):
+One remaining item to check on MediCard's side:
 
-- **The `velero-backups` Blob container must exist in the storage account.** Velero does not auto-create it; if the container is missing when velero starts, the BackupStorageLocation goes `Unavailable` and every backup fails.
-- **The storage-account name is currently a placeholder** in `values/infrastructure/main.yaml` (`velero.azure.storageAccount: "REPLACE-WITH-MEDICARD-STORAGE-ACCOUNT-NAME"`) — the chart requires it as a plaintext value, not sourced from KV. Once MediCard shares the account name (same value that goes into the `medicard-prod-azureblob-account-name` KV entry), we replace the placeholder and velero comes up.
+- **The `velero-backups` Blob container must exist in `sampseapmycurex01`.** Velero does not auto-create containers; if missing when velero starts, `BackupStorageLocation` goes `Unavailable` and every backup fails. MediCard's delivery message did not mention creating it.
 
 Per-namespace backup schedules for `medicard` remain off. Enable when there is application-side state worth backing up (post-migration).
 
@@ -174,7 +173,7 @@ Per-namespace backup schedules for `medicard` remain off. Enable when there is a
 | ArgoCD | ✅ installed, GitOps live | none |
 | envoy-gateway + shared-gateway | ✅ Programmed at 172.22.40.10 | none (MediCard AG wiring is downstream) |
 | external-secrets operator | ✅ Running | none |
-| ClusterSecretStore `azure-secretstore` | ❌ `InvalidProviderConfig` | §3.1 (Azure identity + KV read access) |
+| ClusterSecretStore `azure-secretstore` | ✅ `Ready: Valid` (Azure AD auth OK) | none for auth; §3.1 for reads (vault DNS) |
 | `medicard` namespace + Kyverno/PSS baseline | ✅ | none |
 | hapihub | ❌ `CreateContainerConfigError` (Deployment references Secrets that don't exist yet) | §3.1 (ESO to deliver `hapihub-secrets`) + §3.4 (KV entries for DATABASE_URI + AUTH_*) |
 | s3proxy (object storage → Azure Blob) | ❌ `CreateContainerConfigError` (Deployment references `minio` Secret that doesn't exist yet) | §3.1 + §3.4 (`medicard-prod-azureblob-account-name`/`-key` + our `medicard-prod-s3proxy-credential`) |
@@ -182,7 +181,7 @@ Per-namespace backup schedules for `medicard` remain off. Enable when there is a
 | hapihub-migrator | ✅ Deployed, 0/0 replicas — **paused** | none (by design) |
 | monitoring stack (Prometheus + Grafana + Alertmanager) | ✅ | none (Grafana proxy-only per §3.5) |
 | loki + promtail | ✅ Log aggregation running, 50Gi PVC, 30d retention | none |
-| velero | ⏳ Deployed, pod stuck at `MountVolume` for `velero-credentials` | §3.1 + §3.4 (`azureblob-account-name`/`-key`) + §3.7 (storage-account name placeholder + `velero-backups` container must exist) |
+| velero | ⏳ Deployed, pod stuck at `MountVolume` for `velero-credentials` | §3.1 (vault DNS) + §3.7 (`velero-backups` container must exist) |
 
 ## 5. Cluster-side artifacts left behind
 
