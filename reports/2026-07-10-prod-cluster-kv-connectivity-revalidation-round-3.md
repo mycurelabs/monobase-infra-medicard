@@ -114,7 +114,21 @@ A short read-only probe (using the storage-account key from the `minio` k8s Secr
 
 One narrow MediCard-side item remains:
 
-- **Postgres object grants for the `mycure_prod_app` role.** Connectivity, TLS, and login authentication all succeed against `mpiazeppgdb0003`. The role then hits `permission denied for database postgres` (SQLSTATE 42501) when hapihub tries to run its schema-init / general operations. The specific grants hapihub needs (CONNECT / USAGE / CREATE / and object-level privileges on the target schemas) are on the MediCard DBA to determine. The verbatim error is preserved in §2.3.
+- **Postgres privileges for the `mycure_prod_app` role.** Connectivity, TLS, and login all succeed against `mpiazeppgdb0003`. The failing SQL is hapihub's Drizzle-ORM startup migration: `CREATE SCHEMA IF NOT EXISTS "drizzle"`. This is a database-level `CREATE` check; SQLSTATE `42501`; the specific missing grant is `CREATE ON DATABASE postgres` — and hapihub will need more once past this (usage/create on the `drizzle` and `public` schemas, table-level rights, etc.).
+
+  **Reference — what the staging equivalent has** (from a read-only probe of the staging PG server, `mpiazeapgdb0002`, using the staging DATABASE_URI):
+
+  | Attribute | Staging role `mpadmin02` |
+  |---|---|
+  | Role memberships | `azure_pg_admin`, `pg_read_all_data`, `app_mycure`, and others |
+  | `rolcreaterole` / `rolcreatedb` / `rolbypassrls` / `rolinherit` | true |
+  | `rolsuper` | false (Azure PG does not permit true superuser) |
+  | Database `postgres`: CONNECT / CREATE / TEMPORARY | true / true / true |
+  | Schemas `drizzle` + `public`: CREATE + USAGE | true |
+
+  Practically the cleanest single ask is: **grant `mycure_prod_app` membership in `azure_pg_admin`**, matching how staging is set up. That gets the role the same admin-tier privileges hapihub relies on without hand-writing an object-by-object grant list, and it's a role Azure PG explicitly supports for exactly this purpose.
+
+  **Bigger question worth flagging** (architectural, not urgent). The DATABASE_URI in KV points at `/postgres` — Azure PG's default maintenance database. That's an unusual home for application data; the more idiomatic shape is a dedicated database per application (e.g., `hapihub` or `medicard_hapihub`) with the app role as its owner. Sharing `postgres` means hapihub's `drizzle` schema, its tables, and any future MediCard maintenance activity all sit in the same DB. Not a blocker for this deploy — hapihub will work fine in `postgres` once the grants land — but if MediCard's DBA later wants proper isolation, the cleanup is (a) create a dedicated database, (b) grant `mycure_prod_app` ownership, (c) update the `medicard-prod-database-uri` KV entry to point at it. Hapihub picks up the new URI on next reconcile with no chart change.
 
 ## 3. Cluster-side artifacts left behind
 
