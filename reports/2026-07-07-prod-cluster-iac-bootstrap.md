@@ -47,36 +47,29 @@ velero-resources              main     Synced    Degraded    ← see §3.7
 
 ## 3. Findings
 
-### 3.1 ExternalSecrets provider = InvalidProviderConfig (upstream blocker)
+### 3.1 ExternalSecrets → Key Vault: identity resolved, DNS still blocked
 
-Sheet row 5.b.iii ("No **separate** user-assigned mi for ExternalSecrets at this moment") and 5.b.v ("access policies naka set sya as role-based access(IAM)(RBAC)") point at reusing the same UAMI staging uses. Tenant confirmed same in 5.b.ii. Under that reading, the annotation is on our side, not something we're waiting on MediCard for. Applied and persisted in `values/infrastructure/main.yaml` under `externalSecrets.serviceAccountAnnotations`:
+**Identity (resolved).** MediCard added a Federated Identity Credential to the existing UAMI (client-id `d6b958ed-790e-4a8a-9ce0-10aa6c0776b8`) with the prod cluster's OIDC issuer and subject `system:serviceaccount:external-secrets-system:external-secrets`, and confirmed the UAMI has read access on `kv-mpi-sea-p-mycurex01`. `ClusterSecretStore/azure-secretstore` transitioned to `Ready: True, reason: Valid`. ESO now presents a token and Azure AD accepts it.
 
-```
-azure.workload.identity/client-id: d6b958ed-790e-4a8a-9ce0-10aa6c0776b8
-azure.workload.identity/tenant-id: 31e62360-d307-45a7-932a-f774aa7a6288
-```
+Sheet-side, this confirms the reading of row 5.b.iii ("no *separate* user-assigned mi") — the intent was to reuse the staging UAMI. Row 5.b.v's RBAC statement is also confirmed.
 
-That progressed the reconciler past the "missing SA annotation" error and produced a new one from Azure AD:
+**DNS (new blocker).** Auth succeeds, but the very next step — the actual secret fetch — fails at DNS resolution:
 
 ```
-AADSTS700211: No matching federated identity record found for
-presented assertion issuer
-'https://southeastasia.oic.prod-aks.azure.com/31e62360-d307-45a7-932a-f774aa7a6288/b0819550-15a3-4697-9db7-44b573833866/'.
+error retrieving secret at .data[0], key: medicard-prod-azureblob-account-key,
+err: keyvault.BaseClient#GetSecret: Failure sending request: StatusCode=0
+Original Error: Get "https://kv-mpi-sea-p-mycurex01.vault.azure.net/secrets/…":
+dial tcp: lookup kv-mpi-sea-p-mycurex01.vault.azure.net on 10.0.0.10:53:
+no such host
 ```
 
-Reading:
-- Azure AD recognises the UAMI as an identity in the shared tenant.
-- The UAMI's Federated Identity Credential does NOT list the prod cluster's OIDC issuer (the URL Azure printed above).
-- Vault RBAC couldn't be tested yet — the request never reached the vault.
+The two operations use different endpoints. Auth talks to `login.microsoftonline.com` — a public Microsoft endpoint reachable over the AKS cluster's normal egress. The secret fetch talks to the vault's own hostname, which CNAME-chains into `privatelink.vaultcore.azure.net.` because the vault has a Private Endpoint (`pl-mpi-sea-p-mycurex-kv01` per sheet row 5.b.v). That private DNS zone only resolves from VNets it is linked to. The AKS VNet (`mc-prd-vnet-sea-01`) does not appear to have that link — CoreDNS returns NXDOMAIN.
 
-**What we need to observe on MediCard's side to unblock this** (mechanism and process on their side are out of scope for us):
+**What we need to observe on MediCard's side** (mechanism on their side is out of scope for us):
 
-- A federated identity credential on the UAMI whose issuer matches the URL Azure returned above, whose subject matches `system:serviceaccount:external-secrets-system:external-secrets`, and whose audience is `api://AzureADTokenExchange`. When that credential exists, this error goes away.
-- Once the federation error clears, we'll observe whether the next call succeeds or returns a vault-side "Forbidden" — the latter would indicate the UAMI still needs read access on `kv-mpi-sea-p-mycurex01` (5.b.v says RBAC is set; this would falsify that).
+- `kv-mpi-sea-p-mycurex01.vault.azure.net` must resolve to a routable IP from pods inside the AKS VNet. The mechanism (linking the `privatelink.vaultcore.azure.net` private DNS zone to the AKS VNet, adding a private endpoint of the vault into the AKS VNet, or a network path from AKS to whatever VNet currently holds the private endpoint) is their infrastructure call. We can verify success by re-running the ExternalSecret reconcile and observing whether the same request succeeds.
 
-If instead MediCard intended a different identity than the staging UAMI (i.e. our reading of 5.b.iii is wrong), the alternative is to swap the ClusterSecretStore's `authType` to the mode matching whatever identity they intend and revert the SA annotation. Either way, we're now one narrow, single-error question away from Ready.
-
-Once resolved, §3.2 unblocks.
+Once this clears and §3.4's KV entries are already populated (they are — see below), §3.2 unblocks.
 
 ### 3.2 Application pods
 
@@ -112,23 +105,23 @@ Grafana is deliberately not on this list — see §3.5.
 
 **Our-side follow-up:** if `172.22.40.10` is stable across LB recreates on MediCard's end, we can pin it in our infrastructure values. Otherwise we leave the current auto-allocation in place and capture whatever new IP appears after any LB recreate.
 
-### 3.4 Vault contents (per Infrastructure Clarifications sheet)
+### 3.4 Vault contents
 
-For each KV entry name our ExternalSecrets are configured to read, this is what was observed at snapshot time. The "Value visible in the sheet" column tracks values MediCard has already disclosed to us in writing; it does NOT imply the corresponding KV entry has been created — that step is on the KV owner (MediCard for the MediCard-owned entries; us for the s3proxy internal credential).
+MediCard populated the vault. Observed via the Azure Portal listing.
 
-| KV secret name | Value visible in the sheet | Observed status |
+| KV secret name | Consumed by | Observed status |
 |---|---|---|
-| `medicard-prod-database-uri` | Row 3.a, latest: `postgresql://mycure_prod_app:[REDACTED-PG-PASSWORD]@mpiazeppgdb0003.postgres.database.azure.com:5432/postgres?sslmode=require` | Value disclosed; sheet row 5.c.ix notes "not yet configured for ESO sync". Owner: MediCard. |
-| `medicard-prod-pg-target-uri` | Row 5.c.xi: same as DATABASE_URI (single role). | Value disclosed; not observed in KV. Owner: MediCard. |
-| `medicard-prod-auth-secret` | Row 99: `[REDACTED-AUTH-SECRET]`. | Value disclosed; not observed in KV. Owner: MediCard. |
-| `medicard-prod-better-auth-secret` | Row 5.c.viii, latest: "no entry found in prod app config". | Value NOT disclosed. Two paths exist: MediCard supplies an existing value if session parity with the legacy VM matters, otherwise a fresh value can be generated (with the caveat that any pre-existing sessions would be invalidated). |
-| `medicard-prod-mongo-source-uri` | Row 4.a: `mongodb+srv://stg_mycure_acct:[REDACTED-MONGO-PASSWORD]@mycure-stg-sh.q4trx.mongodb.net/admin?retryWrites=true&w=majority&appName=mycure-stg-sh`. | Value disclosed; not observed in KV. Only becomes relevant once the migrator is un-paused. Owner: MediCard. |
-| `medicard-prod-azureblob-account-name` | Storage account name (per earlier answers, expected to be a dedicated account for this workload). | Not observed in KV. Owner: MediCard. |
-| `medicard-prod-azureblob-account-key` | Storage account access key. | Not observed in KV. Owner: MediCard. |
-| `medicard-prod-s3proxy-credential` | Not applicable — internal S3-side credential (32-char random). | Not written yet. Owner: us. No MediCard dependency. |
-| `medicard-prod-pg-encryption-key` + per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | Row 5.c.i–vii: **disputed** — MediCard says "data is plain text", MYCURE DEV rebuttal says "encrypted, keys exist". | Unresolved dispute. Only becomes blocking once the migrator is enabled AND the source data is in fact encrypted. Non-blocker for this deploy. |
+| `medicard-prod-database-uri` | hapihub (`DATABASE_URI`) + migrator | ✓ Present in KV. Awaiting §3.1 DNS. |
+| `medicard-prod-pg-target-uri` | migrator (when un-paused) | ✓ Present in KV. |
+| `medicard-prod-AUTH-SECRET` | hapihub (`AUTH_SECRET`) | ✓ Present in KV. Portal spelling is uppercase; Azure KV is case-insensitive so our chart reference `medicard-prod-auth-secret` resolves to the same value. |
+| `medicard-prod-mongo-source-uri` | migrator (source) | ✓ Present in KV. |
+| `medicard-prod-azureblob-account-name` | info; value `sampseapmycurex01` | ✓ Present in KV. |
+| `medicard-prod-azureblob-account-key` | s3proxy + velero | ✓ Present in KV. |
+| `medicard-prod-pg-encryption-key` + all five per-table keys (`-enc-medical-records`, `-enc-personal-details`, `-enc-billing-invoices`, `-enc-billing-items`, `-enc-billing-payments`) | hapihub + migrator | ✓ Present in KV. Row 5.c.i–vii dispute effectively closed by MediCard populating them. Non-blocker either way — only relevant once the migrator runs. |
+| `medicard-prod-s3proxy-credential` | s3proxy internal identity | Not written yet. Owner: us. No MediCard dependency. |
+| `medicard-prod-better-auth-secret` | hapihub (`BETTER_AUTH_SECRET`) | Not present. Env is optional; prod is empty so a fresh value can be minted at any time without disruption. Non-blocker. |
 
-Nothing in §3.4 blocks IaC shape. It **is** the reason hapihub and s3proxy pods don't come up: hapihub reads `DATABASE_URI` + `AUTH_SECRET` from the ExternalSecret-populated `hapihub-secrets`; s3proxy reads the `azureblob-*` pair from the ExternalSecret-populated `minio` Secret. Migrator un-pause additionally reads the source URI (and encryption keys if the disputed encryption state resolves to "encrypted").
+Nothing in §3.4 is currently blocking. Every entry hapihub/s3proxy/velero needs to boot is present in the vault; the pods stay red only because §3.1 DNS blocks the fetch.
 
 ### 3.5 Ancillary observations
 
