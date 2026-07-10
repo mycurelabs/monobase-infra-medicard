@@ -408,10 +408,9 @@ velero:
   version: 12.0.1
   provider: azure
   azure:
-    # ponytail: same storage account s3proxy writes to. The actual name
-    # sits in KV as medicard-prod-azureblob-account-name (not secret) —
-    # replace this placeholder once MediCard shares the account name.
-    storageAccount: "REPLACE-WITH-MEDICARD-STORAGE-ACCOUNT-NAME"
+    # Same storage account s3proxy writes to. Value also mirrored in KV
+    # under medicard-prod-azureblob-account-name.
+    storageAccount: "sampseapmycurex01"
     # Container for backups — must exist before velero starts
     # (velero does not auto-create containers).
     blobContainer: "velero-backups"

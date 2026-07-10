@@ -91,11 +91,36 @@ hapihub:
     enabled: false
 
   externalSecrets:
-    enabled: true  # Enables secret mounting in deployment; ESO resource skipped (secrets: [])
+    enabled: true
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
-    secrets: []
+    # KV entries populated by MediCard in kv-mpi-sea-p-mycurex01. Each
+    # entry populates a key in the k8s Secret `hapihub-secrets`, which
+    # the Deployment references via optional secretKeyRef.
+    #
+    # AUTH_SECRET uses the client's exact uppercase KV name — Azure KV
+    # is case-insensitive but matching the Portal listing avoids any
+    # ambiguity in ops handovers.
+    #
+    # BETTER_AUTH_SECRET is intentionally not listed — MediCard did not
+    # populate it and the env is optional. Add when needed (prod is
+    # empty, so a fresh value can be minted at any time).
+    secrets:
+      - secretKey: DATABASE_URI
+        remoteKey: medicard-prod-database-uri
+      - secretKey: AUTH_SECRET
+        remoteKey: medicard-prod-AUTH-SECRET
+      - secretKey: ENC_MEDICAL_RECORDS
+        remoteKey: medicard-prod-enc-medical-records
+      - secretKey: ENC_PERSONAL_DETAILS
+        remoteKey: medicard-prod-enc-personal-details
+      - secretKey: ENC_BILLING_INVOICES
+        remoteKey: medicard-prod-enc-billing-invoices
+      - secretKey: ENC_BILLING_ITEMS
+        remoteKey: medicard-prod-enc-billing-items
+      - secretKey: ENC_BILLING_PAYMENTS
+        remoteKey: medicard-prod-enc-billing-payments
 
   # v11: PostgreSQL-only (external Azure PG)
   postgresql:
