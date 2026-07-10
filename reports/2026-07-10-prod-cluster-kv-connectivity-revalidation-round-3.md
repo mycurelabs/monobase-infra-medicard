@@ -1,6 +1,6 @@
 # 2026-07-10 — Prod Cluster Key Vault Connectivity Revalidation (round 3)
 
-**Status:** MediCard fixed the RBAC — the UAMI now has `Key Vault Secrets User` on the prod vault. Full read pipeline works end-to-end from inside the cluster. Two of three ExternalSecrets have synced (`hapihub-secrets`, `velero-credentials`); the third (`minio-credentials`) fails on a KV entry that is on **our** side to populate. Velero pod is now 1/1 Running, but the BackupStorageLocation is `Unavailable` because the `velero-backups` blob container does not exist in the storage account yet. Hapihub and s3proxy pods remain stuck at `CreateContainerConfigError` waiting for the `minio` Secret to be created — that unblocks once the third KV entry lands.
+**Status:** MediCard fixed the RBAC — the UAMI now has `Key Vault Secrets User` on the prod vault. Full read pipeline works end-to-end from inside the cluster. All three ExternalSecrets have synced (`hapihub-secrets`, `velero-credentials`, `minio-credentials`); the `minio-credentials` case was closed on our side by restructuring the s3proxy chart to mint its S3-side credential via ESO's `Password` generator (no external KV entry needed). Hapihub, s3proxy (fronting as `minio`), mycure, velero, and the node-agent DaemonSet are all 1/1 Running. The only remaining item is MediCard-side: velero's BackupStorageLocation is `Unavailable` because the `velero-backups` blob container does not exist in `sampseapmycurex01` yet — non-blocker for hapihub/s3proxy, only matters at first backup attempt.
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01`.
 **Access path:** kubectl executed from `mc.remote.prd.bastion` via `ssh medicard.gateway`.
 **Prior state:** see [`2026-07-10-prod-cluster-kv-connectivity-revalidation.md`](./2026-07-10-prod-cluster-kv-connectivity-revalidation.md) (round 2). Round 2 observed the RBAC `Forbidden` error immediately after DNS was fixed; MediCard's Khalid Bayabao confirmed the diagnosis and swapped the MI's role from `Key Vault Certificate User` to `Key Vault Secrets User`.
@@ -60,29 +60,25 @@ Observations:
 
 ### 2.2 ExternalSecret status
 
-Two of three transitioned to Ready; the third fails on a downstream, well-scoped issue:
+All three transitioned to Ready:
 
 ```
-NAMESPACE   NAME                 STATUS               DETAIL
-medicard    hapihub-secrets      SecretSynced         Secret created with 7 keys
-velero      velero-credentials   SecretSynced         Secret created with AZURE_STORAGE_ACCOUNT_ACCESS_KEY
-medicard    minio-credentials    SecretSyncedError    "error retrieving secret at .data[2],
-                                                       key: medicard-prod-s3proxy-credential,
-                                                       err: Secret does not exist"
+NAMESPACE   NAME                 STATUS         DETAIL
+medicard    hapihub-secrets      SecretSynced   Secret created with 7 keys
+medicard    minio-credentials    SecretSynced   Secret created with 4 keys
+                                                (root-user, root-password,
+                                                 azureblob-account, azureblob-key)
+velero      velero-credentials   SecretSynced   Secret created with AZURE_STORAGE_ACCOUNT_ACCESS_KEY
 ```
 
-The `minio-credentials` failure is not on MediCard's side. This KV entry is the internal-to-cluster S3-side credential that our chart is set up to consume — it was called out in earlier reports as "Owner: us. No MediCard dependency." The vault does not contain it because we have not created it yet.
+`minio-credentials` was closed by a chart change: the s3proxy chart's ExternalSecret no longer looks up `medicard-prod-s3proxy-credential` from KV. Instead, a namespaced `Password` generator (from `generators.external-secrets.io/v1alpha1`) mints a 32-char alphanumeric value once at ExternalSecret creation, and `refreshInterval: 0` keeps that value stable across subsequent reconciles. The Azure Blob keys still come from KV — those are the only entries `minio-credentials` reads from MediCard's vault. No MediCard interaction was required for this change.
 
 ### 2.3 Downstream pod state
 
-- **`mycure`** — 1/1 Running (unchanged, no secret deps).
-- **`velero-*`** and **`node-agent-*`** — all 1/1 Running (velero-credentials sync unblocked the entire velero namespace).
-- **`hapihub-*`** — new ReplicaSet's pod still `CreateContainerConfigError` with `secret "minio" not found`. Hapihub's Deployment references both `hapihub-secrets` (now exists) and the `minio` Secret (does not — see §2.2).
-- **`minio-*`** (s3proxy fronting as `minio`) — same `CreateContainerConfigError`, same root cause (`minio` Secret does not exist).
-
-The `hapihub-bb87dcc4c-*` pod that shows `1/1 Running` is a rollout artefact from a previous ReplicaSet — the one that was briefly on the SQLite fallback back when `hapihub.minio.enabled` was temporarily off. It is not the current desired state; do not treat that lingering Running pod as a working deploy.
-
-Both `hapihub` and s3proxy-as-`minio` come up 1/1 the moment the `minio` k8s Secret is created — that's one action away.
+- **`mycure`** — 1/1 Running.
+- **`hapihub`** — 1/1 Running. Pod logs show a real Postgres connection to `mpiazeppgdb0003`; the SQLite fallback is gone.
+- **`minio`** (s3proxy fronting as `minio`) — 1/1 Running. S3 API is reachable at `http://minio.medicard.svc.cluster.local:9000`; hapihub's `STORAGE_S3_*` env vars point here.
+- **`velero`** and **`node-agent-*`** — all 1/1 Running.
 
 ### 2.4 Velero BackupStorageLocation
 
@@ -108,19 +104,18 @@ Velero can authenticate to the storage account (the account-key secret is now on
 | Read: `az keyvault secret show` | ❌ DNS | ❌ `Forbidden` | ✅ all sampled reads succeed |
 | ExternalSecret `hapihub-secrets` | (not wired yet) | `SecretSyncedError` (403) | ✅ `SecretSynced` |
 | ExternalSecret `velero-credentials` | ❌ (DNS) | ❌ (403) | ✅ `SecretSynced` |
-| ExternalSecret `minio-credentials` | ❌ (DNS) | ❌ (403) | ❌ `SecretSyncedError` (our KV entry missing) |
+| ExternalSecret `minio-credentials` | ❌ (DNS) | ❌ (403) | ✅ `SecretSynced` (Password generator + KV) |
 | Workload pods: `mycure` | ✅ | ✅ | ✅ |
 | Workload pods: `velero` + node-agents | ❌ Init | ❌ Init | ✅ 1/1 Running |
-| Workload pods: `hapihub` (new RS) | ❌ CCCE | ❌ CCCE | ❌ CCCE (waiting on `minio` Secret) |
-| Workload pods: s3proxy-as-`minio` | ❌ CCCE | ❌ CCCE | ❌ CCCE (waiting on `minio` Secret) |
+| Workload pods: `hapihub` (new RS) | ❌ CCCE | ❌ CCCE | ✅ 1/1 Running (PG connection to `mpiazeppgdb0003`) |
+| Workload pods: s3proxy-as-`minio` | ❌ CCCE | ❌ CCCE | ✅ 1/1 Running |
 | Velero BSL | (not deployed) | (blocked) | `Unavailable` — ContainerNotFound |
 
 ### 2.6 What we're reporting
 
-Two narrow items remain to close out the deploy. They are independent:
+The application layer is now green — hapihub, s3proxy, mycure, velero all running with real DB connectivity and real Azure Blob storage. One narrow, low-priority item remains:
 
-- **Our-side**: `medicard-prod-s3proxy-credential` needs to be created. This is the S3-side identity that s3proxy (fronting as `minio`) uses; we've always framed it as our responsibility to mint. Two paths: put a random 32-char value into the KV under that name (requires KV `Secrets Officer` role for us on the vault, which we don't currently have), or restructure the s3proxy chart's ExternalSecret to source that value from an ESO password generator instead of a KV read. When the `minio` Secret is created by ESO, both hapihub and s3proxy come up 1/1 without further intervention.
-- **MediCard-side**: the `velero-backups` blob container inside `sampseapmycurex01`. Was flagged in the bootstrap report; still not observed to exist. Non-blocker for hapihub/s3proxy. Only matters when a backup is attempted.
+- **MediCard-side**: the `velero-backups` blob container inside `sampseapmycurex01`. Was flagged in the bootstrap report; still not observed to exist. Non-blocker for hapihub/s3proxy/mycure. Only matters when a backup is attempted; velero's BackupStorageLocation stays `Unavailable` until the container exists.
 
 ## 3. Cluster-side artifacts left behind
 
