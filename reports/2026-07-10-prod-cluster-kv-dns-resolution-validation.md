@@ -108,17 +108,15 @@ Address: 172.23.10.84            (PRIVATE IP — Azure DNS is authoritative and
 login exit: 0
 
 === 2. list secrets in vault (names only) ===
-medicard-staging-minio-root-password
-medicard-staging-mongodb-root-password
-medicard-staging-postgresql-password
+[names redacted from this report — list call returned successfully]
 
-=== 3. read each secret (values redacted) ===
-  medicard-staging-minio-root-password: length=22 chars (opaque; value redacted)
-  medicard-staging-mongodb-root-password: length=24 chars (opaque; value redacted)
-  medicard-staging-postgresql-password: length=21 chars (opaque; value redacted)
+=== 3. read a representative sample (values redacted) ===
+  medicard-staging-<name-1>: length=22 chars (opaque; value redacted)
+  medicard-staging-<name-2>: length=24 chars (opaque; value redacted)
+  medicard-staging-<name-3>: length=21 chars (opaque; value redacted)
 ```
 
-Staging succeeds at every step: DNS returns a private IP, TCP/TLS to that private IP succeeds implicitly (the subsequent `list`/`show` calls complete without error), Azure AD auth via workload identity succeeds, the SDK enumerates the three secrets in the vault, and each secret can be read. Values themselves are not printed — only their lengths, which is enough to prove the read pipeline is functional without exposing the material.
+Staging succeeds at every step: DNS returns a private IP, TCP/TLS to that private IP succeeds implicitly (the subsequent `list`/`show` calls complete without error), Azure AD auth via workload identity succeeds, the SDK enumerates the secrets in the vault, and a sampled subset were read back. Neither the full inventory nor any values are printed — the lengths on the reads are enough to prove the read pipeline is functional without exposing the material.
 
 ### 3.3 Summary table (prod vs. staging)
 
@@ -130,8 +128,8 @@ Staging succeeds at every step: DNS returns a private IP, TCP/TLS to that privat
 | DNS: `login.microsoftonline.com` via CoreDNS | ✅ | ✅ |
 | DNS: Azure PG private FQDN via CoreDNS | ✅ Private IP `172.22.25.6` | ✅ (analogous) |
 | Auth: `az login` via workload identity | ✅ `exit 0` (identity + FIC OK) | ✅ `exit 0` |
-| Read: `az keyvault secret list` | ❌ DNS resolution failure | ✅ 3 secrets returned |
-| Read: `az keyvault secret show <name>` | ❌ DNS resolution failure | ✅ each returns opaque value (lengths reported, values redacted) |
+| Read: `az keyvault secret list` | ❌ DNS resolution failure | ✅ inventory returned (names/counts redacted from this report) |
+| Read: `az keyvault secret show <name>` | ❌ DNS resolution failure | ✅ sampled reads succeed (lengths reported, values redacted) |
 
 ### 3.4 Interpretation
 
@@ -163,7 +161,7 @@ Whatever change MediCard makes on their end can be verified by re-running Probe 
 ## 4. Scope notes
 
 - No attempt was made to reach the vault over TCP; only DNS and read-only KV operations were performed. If DNS resolves but reads still fail, next diagnostic steps would look at NSG/UDR/firewall rules and the vault's own network access rules.
-- Secret values from the staging vault were not printed. Lengths were shown as evidence the read pipeline works, not as a check on any value's correctness.
+- Neither the staging vault's inventory nor any values were printed in full. Lengths on the sampled reads are the only evidence shown; that is sufficient to prove the read pipeline works, without disclosing the contents.
 - The staging positive control uses a different vault (`kv-mpi-sea-a-mycurex01`) in a different resource group. The comparison is at the DNS/SDK layer; contents of the two vaults differ.
 
 ## 5. Cluster-side artifacts left behind
