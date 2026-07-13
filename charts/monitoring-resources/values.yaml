@@ -27,6 +27,19 @@ rules:
   warning:
     enabled: true
 
+# Alertmanager receiver configuration.
+# Alertmanager itself is enabled in values/infrastructure/main.yaml; this
+# block wires WHERE alerts go. Flip .slack.enabled to true AFTER writing
+# a Slack incoming-webhook URL to the KV entry named in externalSecretKey
+# — the ExternalSecret + AlertmanagerConfig CR come up together.
+alertmanager:
+  slack:
+    enabled: false
+    channel: "#medicard-prod-alerts"
+    externalSecretKey: medicard-prod-alertmanager-slack-webhook
+    secretStore: azure-secretstore
+    refreshInterval: 1h
+
 # ServiceMonitors
 serviceMonitors:
   enabled: true

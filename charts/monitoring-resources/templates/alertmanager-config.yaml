@@ -1,0 +1,87 @@
+{{- if .Values.alertmanager.slack.enabled }}
+# AlertmanagerConfig CR — the prometheus-operator merges any
+# AlertmanagerConfig it can select into the running Alertmanager config.
+#
+# Route tree: severity → receiver. `critical` fires immediately (no
+# group_wait) and repeats every hour so a still-firing incident keeps
+# paging. `warning` groups for 30s / repeats 4h. `info` groups longer.
+# Everything ultimately reaches the same Slack channel; use severity as
+# the visual filter on the Slack side.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: medicard-prod-slack
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: alertmanager-config
+    app.kubernetes.io/component: monitoring
+spec:
+  route:
+    receiver: slack-default
+    groupBy: ["alertname", "cluster", "service"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    routes:
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: slack-critical
+        groupWait: 0s
+        repeatInterval: 1h
+        continue: false
+      - matchers:
+          - name: severity
+            value: warning
+        receiver: slack-default
+        continue: false
+      - matchers:
+          - name: severity
+            value: info
+        receiver: slack-default
+        groupInterval: 15m
+        repeatInterval: 12h
+        continue: false
+
+  inhibitRules:
+    # Suppress warning-severity alerts when a critical alert with the
+    # same alertname is already firing for the same source.
+    - sourceMatch:
+        - name: severity
+          value: critical
+      targetMatch:
+        - name: severity
+          value: warning
+      equal: ["alertname", "cluster", "service"]
+
+  receivers:
+    - name: slack-critical
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-webhook
+            key: url
+          channel: {{ .Values.alertmanager.slack.channel | default "#medicard-prod-alerts" | quote }}
+          sendResolved: true
+          title: "[CRITICAL] {{ `{{ .CommonLabels.alertname }}` }}"
+          text: |
+            {{ `{{ range .Alerts }}` }}
+            *Severity:* {{ `{{ .Labels.severity }}` }}
+            *Summary:* {{ `{{ .Annotations.summary }}` }}
+            *Description:* {{ `{{ .Annotations.description }}` }}
+            *Runbook:* {{ `{{ .Annotations.runbook_url }}` }}
+            {{ `{{ end }}` }}
+
+    - name: slack-default
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-webhook
+            key: url
+          channel: {{ .Values.alertmanager.slack.channel | default "#medicard-prod-alerts" | quote }}
+          sendResolved: true
+          title: "[{{ `{{ .CommonLabels.severity | toUpper }}` }}] {{ `{{ .CommonLabels.alertname }}` }}"
+          text: |
+            {{ `{{ range .Alerts }}` }}
+            *Summary:* {{ `{{ .Annotations.summary }}` }}
+            *Description:* {{ `{{ .Annotations.description }}` }}
+            {{ `{{ end }}` }}
+{{- end }}

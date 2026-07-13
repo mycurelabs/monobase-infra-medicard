@@ -473,6 +473,13 @@ monitoring:
         certManager:
           enabled: false
   
-  # Alertmanager - enabled, no receivers yet (alerts visible in UI/API only)
+  # Alertmanager - enabled. Receiver routing (Slack) is configured in the
+  # monitoring-resources chart via an AlertmanagerConfig CR + ExternalSecret,
+  # gated behind monitoring-resources' `alertmanager.slack.enabled` flag.
+  # TODO: populate KV entry `medicard-prod-alertmanager-slack-webhook` with
+  # the actual Slack incoming-webhook URL, then set
+  # `alertmanager.slack.enabled: true` in values/deployments/medicard.yaml
+  # under the `monitoring-resources:` block (or wherever the chart values
+  # get injected). Until then alerts fire silently.
   alertmanager:
     enabled: true
