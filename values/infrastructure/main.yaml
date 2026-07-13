@@ -36,7 +36,9 @@ argocd:
 
   # Server (API and UI)
   server:
-    replicas: 1  # Single replica
+    # HA: stateless HTTP/gRPC surface. Two replicas + preferred hostname
+    # anti-affinity so a node bounce doesn't drop the UI/API.
+    replicas: 2
 
     metrics:
       enabled: true
@@ -96,7 +98,10 @@ argocd:
 
   # Repo Server (Git repository interaction)
   repoServer:
-    replicas: 1  # Single replica
+    # HA: stateless (git clones + Helm renders are transient per request).
+    # Concurrent renders are thread-safe per ArgoCD's design; second pod
+    # warms its Helm cache on demand.
+    replicas: 2
 
     metrics:
       enabled: true
@@ -114,7 +119,9 @@ argocd:
   # ApplicationSet Controller (App-of-Apps)
   applicationSet:
     enabled: true
-    replicas: 1  # Single replica
+    # HA: chart enables built-in leader-election, so only one pod drives
+    # template expansions at a time; the second stands by for takeover.
+    replicas: 2
 
     metrics:
       enabled: true
