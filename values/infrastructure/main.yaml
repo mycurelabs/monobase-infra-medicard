@@ -260,6 +260,13 @@ certManager:
 gateway:
   enabled: true
 
+  # HA: bump the Envoy Gateway CONTROLLER to 2 replicas. This is
+  # applied by charts/argocd-infrastructure/templates/gateway.yaml into
+  # the gateway-helm chart's deployment.replicas key. The controller is
+  # stateless — parallel reconcilers are safe.
+  operator:
+    replicas: 2
+
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: medicardphils.com
 
@@ -314,6 +321,23 @@ gateway:
 envoyProxyConfig:
   enabled: true
   cloudProvider: azure
+
+  # HA: bump the auto-created data-plane Deployment
+  # (`envoy-gateway-system-shared-gateway-*`) to 2 replicas + preferred
+  # hostname anti-affinity. Rendered by charts/envoy-proxy-config into
+  # the EnvoyProxy CR referenced by the GatewayClass parametersRef above.
+  envoyDeployment:
+    replicas: 2
+    pod:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: proxy
+                topologyKey: kubernetes.io/hostname
 
   # Azure AKS Configuration - Internal LoadBalancer with static private IP
   azure:

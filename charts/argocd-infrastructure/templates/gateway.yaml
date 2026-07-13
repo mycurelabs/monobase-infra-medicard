@@ -28,6 +28,23 @@ spec:
             annotations:
               argocd.argoproj.io/hook: PreSync
               argocd.argoproj.io/hook-delete-policy: HookSucceeded
+        # Envoy Gateway CONTROLLER HA. This is the operator that watches
+        # Gateway/HTTPRoute CRs and reconciles Envoy configs — separate
+        # from the data-plane Deployment (envoy-gateway-system-shared-
+        # gateway-*), which is scaled via the EnvoyProxy CR in
+        # charts/envoy-proxy-config.
+        deployment:
+          replicas: {{ .Values.gateway.operator.replicas | default 1 }}
+          pod:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchLabels:
+                          app.kubernetes.io/name: gateway-helm
+                      topologyKey: kubernetes.io/hostname
 
   destination:
     server: https://kubernetes.default.svc
