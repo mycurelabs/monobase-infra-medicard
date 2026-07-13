@@ -21,6 +21,26 @@ spec:
     targetRevision: {{ .Values.kyverno.version | default "3.2.0" }}
     helm:
       releaseName: kyverno
+      valuesObject:
+        # Bitnami migrated their public Docker Hub images to `bitnamilegacy/*`
+        # in mid-2025 and delisted the old `bitnami/kubectl` tags. Kyverno
+        # chart 3.2.0 still ships `bitnami/kubectl:1.28.5` as the default for
+        # its kubectl-based lifecycle jobs, so cleanup CronJobs and the
+        # helm-hook Jobs land in ImagePullBackOff on install. Redirect all
+        # four to `bitnamilegacy/kubectl`.
+        webhooksCleanup:
+          image:
+            repository: bitnamilegacy/kubectl
+        policyReportsCleanup:
+          image:
+            repository: bitnamilegacy/kubectl
+        cleanupJobs:
+          admissionReports:
+            image:
+              repository: bitnamilegacy/kubectl
+          clusterAdmissionReports:
+            image:
+              repository: bitnamilegacy/kubectl
 
   destination:
     server: https://kubernetes.default.svc
