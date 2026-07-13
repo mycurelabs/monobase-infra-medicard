@@ -577,6 +577,60 @@ monitoring:
       tls:
         certManager:
           enabled: false
+
+    # HA: in-cluster PostgreSQL as Grafana's shared metadata store, so
+    # multiple Grafana replicas see one source of truth. See
+    # charts/grafana/{Chart.yaml, values.yaml, templates/
+    # postgresql-externalsecret.yaml}. Password is minted by ESO Password
+    # generator — no KV entry needed.
+    postgresql:
+      enabled: true
+
+    externalSecrets:
+      enabled: true
+
+    # Bitnami subchart values (pass-through via `grafana:` key)
+    grafana:
+      replicaCount: 2
+
+      # PVC is now unnecessary — state lives in the in-cluster Postgres.
+      # Turning it off avoids ReadWriteOnce PVCs blocking multi-replica
+      # scheduling.
+      persistence:
+        enabled: false
+
+      # Wire the built-in GF_DATABASE_* env vars so Grafana boots against
+      # the in-cluster Postgres (service `grafana-postgresql`, port 5432,
+      # database `grafana`, user `grafana`). Password mounted from the
+      # ExternalSecret-managed `grafana-postgresql-secret`.
+      extraEnvVars:
+        - name: GF_DATABASE_TYPE
+          value: postgres
+        - name: GF_DATABASE_HOST
+          value: grafana-postgresql:5432
+        - name: GF_DATABASE_NAME
+          value: grafana
+        - name: GF_DATABASE_USER
+          value: grafana
+        - name: GF_DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-postgresql-secret
+              key: password
+
+      podDisruptionBudget:
+        create: true
+        minAvailable: 1
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: grafana
+                topologyKey: kubernetes.io/hostname
   
   # Alertmanager - enabled. Receiver routing (Slack) is configured in the
   # monitoring-resources chart via an AlertmanagerConfig CR + ExternalSecret,
