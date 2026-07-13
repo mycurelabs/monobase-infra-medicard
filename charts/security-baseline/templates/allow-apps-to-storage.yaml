@@ -1,0 +1,51 @@
+{{- if .Values.networkPolicies.allowAppsToStorage }}
+# hapihub → s3proxy (S3-compatible facade over Azure Blob).
+# Pair with default-deny-all: without this, hapihub uploads fail.
+# MediCard has no in-cluster Typesense; DB/Mongo egress is out-of-cluster
+# and covered by the default egress allow to external IPs (kube-dns +
+# Azure PG private endpoint traffic already flows under the current setup).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hapihub-to-s3proxy
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    security-policy: allow-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hapihub
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: s3proxy
+      ports:
+        - protocol: TCP
+          port: 9000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-s3proxy-from-hapihub
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    security-policy: allow-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: s3proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hapihub
+      ports:
+        - protocol: TCP
+          port: 9000
+{{- end }}
