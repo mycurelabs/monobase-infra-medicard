@@ -21,3 +21,12 @@ dependencies:
     version: "~11.3.0"
     repository: https://charts.bitnami.com/bitnami
     condition: enabled
+  # In-cluster PostgreSQL for Grafana's session/dashboard metadata.
+  # Bitnami PG standalone; enabled when Grafana runs multi-replica (a
+  # single-replica Grafana can use SQLite instead). Bitnamilegacy image
+  # (see charts/grafana/values.yaml `postgresql.image`) sidesteps the
+  # Bitnami public-image migration.
+  - name: postgresql
+    version: "~15.5.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

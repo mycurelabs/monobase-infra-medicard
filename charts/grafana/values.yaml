@@ -101,6 +101,58 @@ grafana:
     - configMapName: grafana-dashboard-prometheus
       fileName: prometheus.json
 
+# ===== In-cluster PostgreSQL (subchart) =====
+# Backs Grafana's dashboard / user / session metadata so multiple Grafana
+# replicas share one source of truth. Single-replica PG (Grafana keeps
+# serving cached content on PG blip); PG HA is future work.
+#
+# When postgresql.enabled=false (default), Grafana falls back to the
+# per-pod SQLite backend and MUST run at replicas=1.
+postgresql:
+  enabled: false
+
+  # Bitnami migrated public images to bitnamilegacy/* in mid-2025; the
+  # rest of this repo pins the same tag/registry (see Kyverno allowlist).
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "16.4.0-debian-12-r13"
+
+  architecture: standalone
+
+  auth:
+    enabled: true
+    database: grafana
+    username: grafana
+    # Password minted by ESO Password generator; see
+    # charts/grafana/templates/postgresql-externalsecret.yaml.
+    existingSecret: grafana-postgresql-secret
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+
+  primary:
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: "10Gi"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# ===== ExternalSecret / Password generator config =====
+# Applies only when postgresql.enabled=true. Password is minted once in
+# the cluster (no KV entry) and pinned via refreshInterval="0" so it
+# doesn't rotate on every ESO reconcile.
+externalSecrets:
+  enabled: false
+  secretStore: azure-secretstore
+  secretStoreKind: ClusterSecretStore
+
 # ===== Custom Gateway API Configuration =====
 gateway:
   enabled: true
