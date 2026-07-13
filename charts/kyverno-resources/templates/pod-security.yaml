@@ -27,6 +27,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Pod must set securityContext.runAsNonRoot=true.
@@ -46,6 +48,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Privilege escalation must be disabled.
@@ -63,6 +67,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         All capabilities must be dropped.
@@ -82,6 +88,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Seccomp profile must be set.
@@ -103,6 +111,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Host namespaces (hostNetwork, hostPID, hostIPC) are not allowed.
@@ -119,6 +129,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         HostPath volumes are not allowed.
@@ -135,6 +147,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Privileged containers are not allowed.
@@ -152,6 +166,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Only allowed volume types: configMap, downwardAPI, emptyDir,

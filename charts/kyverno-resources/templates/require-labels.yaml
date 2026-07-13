@@ -26,6 +26,8 @@ spec:
       - resources:
           kinds:
           - Deployment
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Deployments must have labels: app, environment, client.
@@ -44,6 +46,8 @@ spec:
       - resources:
           kinds:
           - StatefulSet
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         StatefulSets must have labels: app, environment, client.
@@ -61,6 +65,8 @@ spec:
       - resources:
           kinds:
           - DaemonSet
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         DaemonSets must have labels: app, environment, client.
@@ -80,6 +86,8 @@ spec:
           - Deployment
           - StatefulSet
           - DaemonSet
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Pod templates must have labels: app, environment, client.

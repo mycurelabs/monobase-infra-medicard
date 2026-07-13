@@ -25,6 +25,8 @@ spec:
       - resources:
           kinds:
           - Pod
+    exclude:
+      {{- include "kyverno-resources.excludeSystemNs" . | nindent 6 }}
     validate:
       message: >-
         Container images must be from approved registries.
