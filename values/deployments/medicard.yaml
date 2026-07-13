@@ -161,8 +161,15 @@ hapihub:
     # is safe.
     defaultBuckets: "blobmpseapmycurex01"
 
+  # Shared in-cluster Valkey (top-level `valkey:` block below). Same
+  # instance cadence uses. hapihub's response cache activates only when
+  # BOTH valkey.enabled AND cache.enabled — see charts/hapihub/templates/
+  # deployment.yaml.
   valkey:
-    enabled: false
+    enabled: true
+
+  cache:
+    enabled: true
 
   mailpit:
     enabled: false  # No mailpit in prod
@@ -366,8 +373,42 @@ mongodb:
     enabled: true
 
 # ===== CACHE: Valkey (Redis) =====
+# In-cluster Bitnami valkey subchart. Shared instance backs hapihub's
+# response cache (V1/V2) AND cadence's metadata backend (C1). Password
+# minted in-cluster by ESO Password generator (charts/hapihub/templates/
+# valkey-externalsecret.yaml) — no KV entry needed.
+#
+# Sized down from mycure prod (32Gi PVC / 2Gi mem req): MediCard's traffic
+# is a fraction and cadence changelog isn't the driver here. Start at 8Gi
+# PVC + 512Mi mem req; bump if OOM or if PVC fills once cadence enables.
 valkey:
-  enabled: false
+  enabled: true
+
+  global:
+    security:
+      allowInsecureImages: true
+
+  auth:
+    existingSecret: valkey
+
+  architecture: standalone
+
+  image:
+    repository: bitnamilegacy/valkey
+    tag: 8.0.1-debian-12-r2
+
+  master:
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 8Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
 
 # ===== STORAGE: MinIO Object Storage (Bitnami subchart) =====
 # Disabled in prod — s3proxy (below) replaces it. Hapihub is pointed at
