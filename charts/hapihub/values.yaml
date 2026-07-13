@@ -205,6 +205,28 @@ postgresql:
     username: postgres
     existingSecret: ""
 
+# Valkey (Redis) dependency configuration. In-cluster instance deployed
+# by a separate ArgoCD Application (charts/argocd-applications/templates/
+# valkey.yaml → Bitnami valkey chart). Hapihub reads REDIS_URL only when
+# BOTH valkey.enabled AND cache.enabled — see templates/deployment.yaml.
+valkey:
+  enabled: false
+  # Service exposing Valkey primary (Bitnami standalone default: `valkey-primary`).
+  serviceName: "valkey-primary"
+  port: 6379
+  auth:
+    # k8s Secret + key holding the Valkey password. Same conventions as
+    # the Bitnami subchart's `auth.existingSecret`; the sibling
+    # ExternalSecret mints this in-cluster via ESO Password generator.
+    existingSecret: "valkey"
+    secretKey: "valkey-password"
+
+# Hapihub response-cache toggle (hapihub#2231). Independent from Valkey
+# being available — only when BOTH `cache.enabled` and `valkey.enabled`
+# are true does the pod get REDIS_URL / VALKEY_PASSWORD / CACHE_ENABLED.
+cache:
+  enabled: false
+
 # Service Monitor for Prometheus (if monitoring enabled)
 serviceMonitor:
   enabled: false

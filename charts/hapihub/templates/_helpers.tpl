@@ -178,6 +178,10 @@ PostgreSQL username
 
 {{/*
 Valkey (Redis) URL - constructs connection URL from Valkey dependency
+NOTE: legacy/unused — points at a chart-local valkey that is never deployed.
+Kept only so clusters without cache.enabled render unchanged (no rollout).
+The real wiring (valkey-primary + password) is in the deployment.yaml env
+block gated on cache.enabled, mirroring the cadence chart.
 */}}
 {{- define "hapihub.valkey.url" -}}
 {{- if .Values.valkey.enabled -}}
@@ -185,6 +189,16 @@ Valkey (Redis) URL - constructs connection URL from Valkey dependency
 {{- $namespace := include "hapihub.namespace" . -}}
 redis://{{ $release }}-valkey-master.{{ $namespace }}.svc.cluster.local:6379
 {{- end -}}
+{{- end }}
+
+{{/*
+Valkey host — the shared in-cluster Valkey (same instance cadence uses).
+Bitnami standalone exposes `valkey-primary`; override via valkey.serviceName.
+*/}}
+{{- define "hapihub.valkey.host" -}}
+{{- $serviceName := .Values.valkey.serviceName | default "valkey-primary" -}}
+{{- $namespace := include "hapihub.namespace" . -}}
+{{- printf "%s.%s.svc.cluster.local" $serviceName $namespace -}}
 {{- end }}
 
 {{/*
