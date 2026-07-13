@@ -15,12 +15,13 @@ spec:
   project: default
 
   source:
+    # Bitnami moved to OCI-only distribution in 2025; the legacy HTTPS
+    # repo URL returns "invalid_reference: invalid tag" for newer charts.
     chart: valkey
-    repoURL: https://charts.bitnami.com/bitnami
-    # `2.x.x` isn't a valid `helm pull --version` spec. Chart 2.2.1 is
-    # the last release shipping valkey 8.0.1 (matches the image tag in
-    # medicard's values). Chart 3.0+ moved to valkey 9.x default; bumping
-    # a major would need re-audit of the subchart values.
+    repoURL: registry-1.docker.io/bitnamicharts
+    # Chart 2.2.1 is the last release shipping valkey 8.0.1 (matches the
+    # image tag in medicard's values). Chart 3.0+ moved to valkey 9.x
+    # default; bumping a major would need re-audit of the subchart values.
     targetRevision: {{ .Values.valkey.chartVersion | default "2.2.1" }}
     helm:
       releaseName: valkey
