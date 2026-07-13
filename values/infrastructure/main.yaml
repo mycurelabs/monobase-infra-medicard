@@ -458,8 +458,13 @@ velero:
         enabled: false
       daily:
         enabled: true
-  # Schedule crons/retention live in charts/velero-resources/values.yaml
-  # (daily 3AM/30d, cluster-weekly Sun 4AM/90d).
+        schedule: "0 3 * * *"     # 03:00 UTC daily
+        retention: "720h"         # 30 days
+    cluster:
+      weekly:
+        enabled: true
+        schedule: "0 4 * * 0"     # 04:00 UTC every Sunday
+        retention: "2160h"        # 90 days — DR archive / compliance floor
 
 # Falco - Runtime security monitoring.
 # Operator + custom rulesets from charts/falco-resources:
