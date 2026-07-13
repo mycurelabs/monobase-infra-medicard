@@ -1,0 +1,107 @@
+{{- if and .Values.enabled .Values.pruneExpiredSessions.enabled }}
+# Daily prune of expired Better Auth sessions. Better Auth never deletes
+# expired session rows (it only checks expiry at read time), so they accumulate
+# forever. Runs a plain psql `DELETE FROM "session" WHERE "expires_at" < now()`
+# — bounded, idempotent, only touches already-expired rows, so it never logs
+# anyone out.
+#
+# Reads DATABASE_URI from `hapihub-secrets` when postgresql.external: true
+# (MediCard's setup — external Azure PG). Composes from parts otherwise
+# (mycure staging with in-cluster PG).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "hapihub.fullname" . }}-prune-sessions
+  namespace: {{ include "hapihub.namespace" . }}
+  labels:
+    {{- include "hapihub.labels" . | nindent 4 }}
+    job-type: prune-expired-sessions
+spec:
+  schedule: {{ .Values.pruneExpiredSessions.schedule | default "0 3 * * *" | quote }}
+  timeZone: {{ .Values.pruneExpiredSessions.timeZone | default "Etc/UTC" | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.pruneExpiredSessions.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.pruneExpiredSessions.failedJobsHistoryLimit | default 3 }}
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.pruneExpiredSessions.backoffLimit | default 1 }}
+      ttlSecondsAfterFinished: {{ .Values.pruneExpiredSessions.ttlSecondsAfterFinished | default 86400 }}
+      activeDeadlineSeconds: {{ .Values.pruneExpiredSessions.activeDeadlineSeconds | default 600 }}
+      template:
+        metadata:
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          labels:
+            {{- include "hapihub.selectorLabels" . | nindent 12 }}
+            job-type: prune-expired-sessions
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "hapihub.serviceAccountName" . }}
+          enableServiceLinks: false
+          restartPolicy: Never
+          {{- $nodePool := include "hapihub.nodePool" . -}}
+          {{- if or $nodePool .Values.nodeSelector }}
+          nodeSelector:
+            {{- if $nodePool }}
+            node-pool: {{ $nodePool }}
+            {{- end }}
+            {{- with .Values.nodeSelector }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if or $nodePool .Values.tolerations }}
+          tolerations:
+            {{- if $nodePool }}
+            - key: "node-pool"
+              operator: "Equal"
+              value: {{ $nodePool | quote }}
+              effect: "NoSchedule"
+            {{- end }}
+            {{- with .Values.tolerations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+          - name: {{ .Chart.Name }}-prune-sessions
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
+            image: {{ .Values.pruneExpiredSessions.image | default "docker.io/bitnamilegacy/postgresql:16.4.0-debian-12-r13" | quote }}
+            imagePullPolicy: IfNotPresent
+            command: ["/bin/sh", "-ec"]
+            args:
+              - |
+                psql "$DATABASE_URI" -v ON_ERROR_STOP=1 \
+                  -c 'DELETE FROM "session" WHERE "expires_at" < now();'
+            resources:
+              {{- toYaml .Values.pruneExpiredSessions.resources | nindent 14 }}
+            env:
+            {{- if .Values.postgresql.external }}
+            # External-PG path: DATABASE_URI is populated whole into hapihub-secrets
+            # by the ExternalSecret in externalsecret.yaml (data.DATABASE_URI).
+            - name: DATABASE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hapihub.fullname" . }}-secrets
+                  key: DATABASE_URI
+            {{- else }}
+            # In-cluster PG path: compose DATABASE_URI from username + Secret
+            # password + chart-known host/db (matches hapihub.containerEnv).
+            - name: POSTGRESQL_USER
+              value: {{ include "hapihub.postgresql.username" . | quote }}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret | default "postgresql" }}
+                  key: postgres-password
+            - name: DATABASE_URI
+              value: "postgres://$(POSTGRESQL_USER):$(POSTGRESQL_PASSWORD)@{{ include "hapihub.postgresql.host" . }}:5432/{{ include "hapihub.postgresql.database" . }}"
+            {{- end }}
+{{- end }}

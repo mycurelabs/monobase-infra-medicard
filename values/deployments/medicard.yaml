@@ -78,6 +78,11 @@ hapihub:
     BETTER_AUTH_SESSION_COOKIE_CACHE_ENABLED: "false"
     CORS_ORIGINS: "https://cms-mycurex.medicardphils.com"
 
+  # Daily CronJob to prune expired Better Auth session rows.
+  # See charts/hapihub/templates/prune-sessions-cronjob.yaml.
+  pruneExpiredSessions:
+    enabled: true
+
   livenessProbe:
     enabled: true
 

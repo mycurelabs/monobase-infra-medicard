@@ -211,6 +211,28 @@ serviceMonitor:
   interval: 30s
   path: /metrics
 
+# Prune Expired Sessions - daily CronJob for Better Auth session hygiene.
+# Better Auth never deletes expired session rows on its own; without this,
+# the `session` table grows unbounded. Idempotent, only touches rows with
+# `expires_at < now()`, so it never logs anyone out.
+pruneExpiredSessions:
+  enabled: false
+  schedule: "0 3 * * *"     # daily at 03:00 in `timeZone`
+  timeZone: "Etc/UTC"
+  # image: override the psql client image (defaults to bitnamilegacy PG16)
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
 # MinIO / S3-compatible storage integration.
 # Historically named `minio` because the original backend was MinIO;
 # `serviceName` and `secretName` make this pluggable — set them to point
