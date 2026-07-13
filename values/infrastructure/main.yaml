@@ -461,9 +461,23 @@ velero:
   # Schedule crons/retention live in charts/velero-resources/values.yaml
   # (daily 3AM/30d, cluster-weekly Sun 4AM/90d).
 
-# Falco - Runtime security monitoring
+# Falco - Runtime security monitoring.
+# Operator + custom rulesets from charts/falco-resources:
+#   api      - detection rules for the Monobase API application
+#   database - detection rules for PostgreSQL container behaviour
+# Falco emits to stdout by default; Promtail ships those to Loki, so
+# alerts land in Grafana. When P0.1 Slack routing is populated in KV,
+# Falco alerts can be forwarded via Alertmanager as well.
 falco:
-  enabled: false
+  enabled: true
+  version: "4.6.1"
+  namespace: falco
+  rules:
+    enabled: true
+    api:
+      enabled: true
+    database:
+      enabled: true
 
 # Loki - Log aggregation (Loki + Promtail)
 loki:
