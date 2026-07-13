@@ -364,6 +364,11 @@ envoyProxyConfig:
 externalSecrets:
   enabled: true
 
+  # HA: scale controller + webhook + cert-controller to 2 replicas.
+  # ESO controller has built-in leader-election; webhook and cert-
+  # controller are stateless.
+  replicas: 2
+
   # Workload identity binding. Same UAMI as staging per sheet row 5.b.iii
   # ("no separate MI"). Tenant same per 5.b.ii. Vault RBAC per 5.b.v.
   # These flow to the external-secrets ServiceAccount so ESO can present
@@ -445,6 +450,9 @@ kyverno:
   enabled: true
   version: "3.2.0"
   namespace: kyverno
+  # HA: 2 replicas per controller. Admission webhooks are stateless;
+  # background/reports/cleanup controllers use leader-election.
+  replicas: 2
   policies:
     enabled: true
     podSecurity:

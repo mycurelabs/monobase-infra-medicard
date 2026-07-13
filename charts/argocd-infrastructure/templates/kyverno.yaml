@@ -22,6 +22,18 @@ spec:
     helm:
       releaseName: kyverno
       valuesObject:
+        # HA — each of Kyverno's four controllers is stateless (webhook
+        # evaluation, policy reporting, background scanning, cleanup
+        # scheduling) and safe to scale. Two replicas + preferred hostname
+        # anti-affinity keeps admission and reporting up during pod churn.
+        admissionController:
+          replicas: {{ .Values.kyverno.replicas | default 1 }}
+        backgroundController:
+          replicas: {{ .Values.kyverno.replicas | default 1 }}
+        reportsController:
+          replicas: {{ .Values.kyverno.replicas | default 1 }}
+        cleanupController:
+          replicas: {{ .Values.kyverno.replicas | default 1 }}
         # Bitnami migrated their public Docker Hub images to `bitnamilegacy/*`
         # in mid-2025 and delisted the old `bitnami/kubectl` tags. Kyverno
         # chart 3.2.0 still ships `bitnami/kubectl:1.28.5` as the default for
