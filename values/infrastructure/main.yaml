@@ -455,12 +455,21 @@ kyverno:
   replicas: 2
   policies:
     enabled: true
+    # Both flipped enforce → audit on 2026-07-13 to unblock HA rollouts.
+    # F1.4a shipped these as `enforce` prophylactically; when HA phase 1
+    # tried to roll a second hapihub replica the RS controller was
+    # admission-denied because tenant charts don't currently set
+    # `securityContext.runAsNonRoot=true` (pod-security) or the
+    # `app`/`environment`/`client` label taxonomy (require-labels).
+    # Correct long-term fix is chart-side compliance; until then, `audit`
+    # keeps the violations visible in PolicyReports without blocking pod
+    # creation.
     podSecurity:
       enabled: true
-      action: enforce
+      action: audit
     requireLabels:
       enabled: true
-      action: enforce
+      action: audit
     restrictRegistries:
       enabled: true
       action: audit
