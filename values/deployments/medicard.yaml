@@ -225,13 +225,22 @@ mycure:
     minAvailable: 1
 
 # ===== HEALTHCARE: Cadence Real-time Sync (WebSocket) =====
-# Disabled: matching preprod 2026-04-07 incident decision
+# Re-enabled 2026-07-13. The preprod 2026-04-07 stickiness concern no
+# longer applies: cadence 0.5.13+ moved state to PG/Valkey (leader-
+# elected internally), so a single-replica pod is safe with no
+# per-client session affinity. Mycure prod runs the same pattern at
+# `replicaCount: 1`.
+#
+# Chart is now the mycure-lineage cadence (Rust rewrite) — image
+# ghcr.io/mycurelabs/cadence, NOT the legacy syncd. Backend: external
+# Azure PG (via hapihub-secrets DATABASE_URI, `postgresql.external: true`
+# mode added to chart) + in-cluster valkey (same instance hapihub uses).
 cadence:
-  enabled: false
+  enabled: true
 
   image:
-    repository: ghcr.io/mycurelabs/syncd
-    tag: "5.130.24"
+    repository: ghcr.io/mycurelabs/cadence
+    tag: "0.7.10"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
@@ -239,17 +248,24 @@ cadence:
   nodeSelector:
     kubernetes.io/arch: amd64
 
+  # Sized down from mycure prod (3Gi req / 12Gi lim) — that ceiling was
+  # driven by mycure's 97-collection catch-up profile. MediCard starts
+  # with the chart-default 2-collection allowlist (accounts + personal-
+  # details) so memory pressure is far lower. Bump if OOM appears once
+  # more collections are added.
   resources:
     requests:
-      cpu: 250m
-      memory: 384Mi
+      cpu: 200m
+      memory: 512Mi
     limits:
       cpu: "2"
       memory: 4Gi
 
   gateway:
     hostname: "sync-mycurex.medicardphils.com"
-    listener: http  # External gateway handles TLS
+    sectionName: http  # External gateway handles TLS
+    snippetsPolicy:
+      enabled: false  # MediCard uses Envoy Gateway, not NGINX
 
   livenessProbe:
     enabled: true
@@ -266,10 +282,40 @@ cadence:
   externalSecrets:
     enabled: false
 
-  mongodb:
-    serviceName: mongodb
-    database: hapihub
-    username: root
+  # External Azure PG — same DATABASE_URI hapihub uses. The chart's new
+  # `postgresql.external: true` mode bypasses the constructor and mounts
+  # CADENCE_PRIMARY_DB_URL directly from a secret (preserves sslmode=
+  # require and other connection-string flags). Cadence owns its own
+  # `cadence` schema in the shared PG database; ensure_sync_infra will
+  # install triggers + indexes on first boot (needs DDL rights, which
+  # mycure_prod_app has via azure_pg_admin).
+  postgresql:
+    enabled: false
+    external: true
+    auth:
+      existingSecret: hapihub-secrets
+      uriKey: DATABASE_URI
+
+  # Shared in-cluster valkey (same instance hapihub caches into).
+  valkey:
+    enabled: true
+    serviceName: valkey-primary
+    port: 6379
+    auth:
+      existingSecret: valkey
+      secretKey: valkey-password
+
+  # HapiHub JWKS endpoint for JWT validation. Chart default `hapihub:7500`
+  # matches the in-cluster Service in the medicard namespace.
+  hapihub:
+    serviceName: hapihub
+    port: 7500
+
+  # Phase 3 pgChangelog stays off — dual-write to PG + Valkey is a
+  # mycure-scale-only optimization. Enable later if we see valkey memory
+  # pressure or want PG-authoritative changelog reads.
+  pgChangelog:
+    enabled: false
 
 # ===== DATABASE: PostgreSQL =====
 # Disabled: hapihub 11.x connects to external Azure PG

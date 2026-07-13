@@ -7,12 +7,37 @@ metadata:
   labels:
     {{- include "cadence.labels" . | nindent 4 }}
 data:
-  NODE_ENV: {{ .Values.config.NODE_ENV | quote }}
-  LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
-  PORT: {{ .Values.config.PORT | quote }}
   {{- range $key, $value := .Values.config }}
-  {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
-  {{- end }}
+  cadence.yml: |
+    collections:
+      {{- range $name, $col := .Values.cadenceConfig.collections }}
+      {{ $name | quote }}:
+        strategy: {{ $col.strategy }}
+        {{- if $col.scope_rules }}
+        scope_rules:
+          {{- range $k, $v := $col.scope_rules }}
+          {{ $k }}: {{ $v }}
+          {{- end }}
+        {{- end }}
+        {{- if $col.scope_columns }}
+        scope_columns:
+          {{- range $k, $v := $col.scope_columns }}
+          {{ $k }}: {{ $v }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- if .Values.cadenceConfig.collectionsBlacklist }}
+    collections_blacklist:
+      {{- range .Values.cadenceConfig.collectionsBlacklist }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.cadenceConfig.priorities }}
+    priorities:
+      {{- range $name, $prio := .Values.cadenceConfig.priorities }}
+      {{ $name | quote }}: {{ $prio }}
+      {{- end }}
+    {{- end }}
 {{- end }}

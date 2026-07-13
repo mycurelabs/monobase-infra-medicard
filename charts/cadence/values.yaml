@@ -1,6 +1,6 @@
-# Default values for Cadence chart (Real-time sync service)
+# Default values for Cadence chart
 # This is a YAML-formatted file with sensible defaults
-# Override these values in deployment values files
+# Override these values in deployments/{env}/values.yaml
 
 # Global configuration (shared across charts)
 global:
@@ -14,10 +14,10 @@ global:
 # Cadence application configuration
 enabled: true
 
-replicaCount: 2
+replicaCount: 1
 
 image:
-  repository: ghcr.io/mycurelabs/syncd
+  repository: ghcr.io/mycurelabs/cadence
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -48,32 +48,35 @@ securityContext:
 
 service:
   type: ClusterIP
-  port: 7800
-  targetPort: 7800
+  port: 7890
+  targetPort: 7890
   annotations: {}
 
 # Gateway API HTTPRoute configuration
 gateway:
   enabled: true
   hostname: ""  # Empty = uses cadence.{global.domain}
-  parentRefs:
-    - name: shared-gateway
-      namespace: gateway-system
+
+  # NGINX Gateway SnippetsPolicy for WebSocket support
+  snippetsPolicy:
+    enabled: false
+    proxyReadTimeout: "3600s"
+    clientMaxBodySize: "10m"
 
 resources:
   requests:
     cpu: 100m
-    memory: 256Mi
+    memory: 128Mi
   limits:
     cpu: 500m
-    memory: 512Mi
+    memory: 256Mi
 
 livenessProbe:
   enabled: true
   httpGet:
-    path: /healthz
-    port: 7800
-  initialDelaySeconds: 30
+    path: /health
+    port: 7890
+  initialDelaySeconds: 15
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
@@ -81,17 +84,17 @@ livenessProbe:
 readinessProbe:
   enabled: true
   httpGet:
-    path: /healthz
-    port: 7800
+    path: /health
+    port: 7890
   initialDelaySeconds: 10
   periodSeconds: 5
-  timeoutSeconds: 3
-  failureThreshold: 2
+  timeoutSeconds: 5
+  failureThreshold: 3
 
 autoscaling:
   enabled: false
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 3
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 
@@ -99,59 +102,145 @@ podDisruptionBudget:
   enabled: false
   minAvailable: 1
 
+# Node pool scheduling (optional, disabled by default)
+# Inherits from global.nodePool if configured
+# nodePool:
+#   enabled: false
+#   name: "staging"
+
 nodeSelector: {}
 
 tolerations: []
 
-affinity:
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: app.kubernetes.io/name
-                operator: In
-                values:
-                  - cadence
-          topologyKey: kubernetes.io/hostname
+affinity: {}
 
-# Application configuration (ConfigMap)
+# Persistent storage for Cadence metadata (SQLite files)
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  mountPath: /app/data
+
+# Cadence config file (mounted as /app/cadence.yml)
+#
+# OWNERSHIP (2026-07-06): the LIVE config is owned by each env's values file
+# (values/deployments/mycure-<env>.yaml → cadence.cadenceConfig). This block
+# is only a safe standalone baseline for chart-only installs and MUST remain
+# a strict subset of every env config (Helm deep-merges maps — a key present
+# here cannot be removed by an env override). Do not add collections here.
+cadenceConfig:
+  # 2026-07-03 (monobase-infra#77): explicit ALLOWLIST — the "*" wildcard
+  # auto-discovery is removed. Wildcard made every public.* table a synced
+  # collection by default (134 tables on prod), so every new hapihub table
+  # silently entered cadence's per-poll scan loop until an operator noticed
+  # (root cause of the 06-25 reseed / 06-27+06-29 disk-fill incident class).
+  # Only collections that embedded clients actually consume belong here.
+  # Verified consumers (2026-07-03 audit): accounts + personal-details.
+  # personal-details-history was removed: dead weight since 0.5.40 — the
+  # "*-history" blacklist glob prunes it at boot (0 changelog rows since).
+  # NOTE: compatible with cadence 0.5.41 (resolve_wildcard no-ops without
+  # "*"). From cadence 0.6.0 a "*" entry is a boot error.
+  collections:
+    accounts:
+      strategy: lww
+      scope_columns:
+        user: id
+    personal-details:
+      strategy: lww
+      scope_columns:
+        user: id
+        organization: facility
+  collectionsBlacklist:
+    - "--drizzle-migrations"
+    - "-migration-checkpoints"
+    # 2026-06-22: million-row low-value table; baseline scan grinds for hours
+    # and blocks the watcher's sequential per-table loop, starving every other
+    # collection. Skip entirely until pg_poll gets per-table parallelism or
+    # timeouts. See monobase-mycure#1543 follow-up + memory project_cadence_0521_rollout_state.
+    - "activity-logs"
+    # 2026-06-26: append-only tables don't need field-level CRDT sync.
+    # Glob support added in cadence 0.5.39 (monobase-mycure#2019).
+    # Re-logging every field of every row was the bulk of the 382M-row
+    # reseed that produced the 78 GB d25 partition.
+    - "*-history"             # personal-details-history, medical-records-history, ...
+    - "*-history-archive-*"   # *_history_archive_YYYYMMDD rotated snapshots
+  # Per-collection sync priority (higher = sent first during catch-up).
+  # "*" is the fallback default for anything not listed. Mirror of
+  # services/hapihub/cadence.yml in monobase-mycure — keep in sync.
+  # Trimmed to the allowlist (2026-07-03, monobase-infra#77) — priorities
+  # for collections that no longer sync were dead config.
+  priorities:
+    "*": 50
+    accounts: 200
+    personal-details: 180
+
+# Application configuration (ConfigMap env vars)
 config:
-  NODE_ENV: production
-  LOG_LEVEL: info
-  PORT: "7800"
-
-# MongoDB dependency configuration (shares database with HapiHub)
-mongodb:
-  serviceName: "mongodb"
-  database: "hapihub"  # Shared with HapiHub
-  username: "root"
-  replicaSet: "rs0"
-
-# Valkey (Redis-compatible cache) dependency configuration
-valkey:
-  enabled: true
+  RUST_LOG: "info"
 
 # External Secrets configuration
 externalSecrets:
-  enabled: false  # Disabled by default, enable in deployment values
-  secretStore: "gcp-secretstore"  # ClusterSecretStore name
+  enabled: false
+  secretStore: ""
+  secretStoreKind: SecretStore
   refreshInterval: 1h
   secrets: []
-  # Example secrets configuration:
-  # secrets:
-  #   - secretKey: JWT_SECRET
-  #     remoteKey: mycure-prod-jwt-secret
-  #   - secretKey: ENCRYPTION_KEY
-  #     remoteKey: mycure-prod-encryption-key
 
-# Network Policy configuration
-networkPolicy:
-  enabled: true  # Enable by default for security
-  gateway:
-    namespace: envoy-gateway-system
-    name: envoy-gateway
+# PostgreSQL dependency configuration (deployed separately)
+# When `external: true`, the chart bypasses the constructor and mounts
+# CADENCE_PRIMARY_DB_URL directly from an ExternalSecret — required for
+# managed PG (Azure PG / RDS / Cloud SQL) that need sslmode=require or
+# other connection-string flags. `auth.existingSecret` names the k8s
+# Secret; `auth.uriKey` (default DATABASE_URI) is the secret data key
+# holding the full postgres:// URI.
+postgresql:
+  enabled: false
+  external: false
+  serviceName: "postgresql"
+  auth:
+    database: hapihub
+    username: postgres
+    existingSecret: ""
+    uriKey: "DATABASE_URI"
+
+# HapiHub dependency — used to construct JWKS URL for JWT validation
+hapihub:
+  serviceName: "hapihub"
+  port: 7500
+
+# Valkey dependency configuration (optional metadata backend)
+valkey:
+  enabled: false
+  serviceName: "valkey-primary"  # Bitnami chart uses valkey-primary for standalone
+  port: 6379
+  auth:
+    existingSecret: "valkey"     # Bitnami chart creates this secret
+    secretKey: "valkey-password"
+
+# Phase 3 (cadence 0.5.29+): PG-native partitioned changelog. When enabled,
+# cadence dual-writes every change-log entry to both Valkey and a
+# cadence-owned `cadence` schema in the same PG as `postgresql.*`. Valkey
+# remains authoritative until `readFrom: pg` is flipped after the preprod
+# soak. Off by default — opt in per-environment.
+#
+# See services/cadence README and mycurelabs/monobase-mycure#1947 for the
+# rollout playbook.
+pgChangelog:
+  enabled: false
+  # When enabled but `url` is empty, the deployment template defaults the
+  # DSN to the same hapihub PG (postgresql.* above). Set explicitly to
+  # point at a different host.
+  url: ""
+  # "valkey" (default — dual-write only) or "pg" (PG-authoritative reads).
+  # Only flip to "pg" after `dual_write_divergence_total = 0` across a
+  # multi-day soak.
+  readFrom: "valkey"
+  # Drop partitions older than this many days during daily maintenance.
+  # Aligned with the Valkey changelog retention; a peer offline longer
+  # reconnects via the below-trim-floor primary-reader snapshot path
+  # (shipped in 0.5.20).
+  retentionDays: 7
 
 # Service Monitor for Prometheus (if monitoring enabled)
 serviceMonitor:

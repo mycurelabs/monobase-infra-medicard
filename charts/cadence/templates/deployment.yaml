@@ -28,6 +28,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "cadence.serviceAccountName" . }}
+      enableServiceLinks: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -36,13 +37,18 @@ spec:
           {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        command: ["sh", "-c"]
+        {{- if .Values.postgresql.external }}
+        # External/managed PG — full CADENCE_PRIMARY_DB_URL mounted from
+        # an ExternalSecret. Supports connection-string flags (?sslmode=
+        # require etc.) that the constructor below can't emit.
+        command: ["/bin/sh", "-c"]
         args:
-        - |
-          # URL-encode MONGODB_PASSWORD for safe use in connection URI
-          ENCODED_PWD=$(printf '%s' "$MONGODB_PASSWORD" | sed 's/%/%25/g;s/@/%40/g;s/!/%21/g;s/:/%3A/g;s/\//%2F/g;s/?/%3F/g;s/#/%23/g;s/\[/%5B/g;s/\]/%5D/g')
-          export MONGO_URI="mongodb://${MONGODB_USER}:${ENCODED_PWD}@${MONGODB_HOST}:${MONGODB_PORT}/${MONGODB_DATABASE}?authSource=admin"
-          exec syncd
+          - exec cadence --primary-db "${CADENCE_PRIMARY_DB_URL}"
+        {{- else if .Values.postgresql.enabled }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - exec cadence --primary-db "postgres://${POSTGRESQL_USER}:${POSTGRESQL_PASSWORD}@{{ include "cadence.postgresql.host" . }}:5432/{{ include "cadence.postgresql.database" . }}"
+        {{- end }}
         ports:
         - name: http
           containerPort: {{ .Values.service.targetPort }}
@@ -74,64 +80,103 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
         env:
-        # Set HOME to /tmp to avoid permission denied errors when running as non-root
-        - name: HOME
-          value: "/tmp"
-        # Load from ConfigMap
-        - name: NODE_ENV
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "cadence.fullname" . }}
-              key: NODE_ENV
-        - name: LOG_LEVEL
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "cadence.fullname" . }}
-              key: LOG_LEVEL
-        - name: PORT
-          value: "{{ .Values.service.targetPort }}"
-        # MongoDB connection - individual components
-        - name: MONGODB_HOST
-          value: {{ include "cadence.mongodb.host" . | quote }}
-        - name: MONGODB_PORT
-          value: "27017"
-        - name: MONGODB_DATABASE
-          value: {{ .Values.mongodb.database | default "hapihub" | quote }}
-        - name: MONGODB_USER
-          value: {{ .Values.mongodb.username | default "root" | quote }}
-        - name: MONGODB_PASSWORD
+        # Data directory for metadata storage
+        - name: CADENCE_DATA_DIR
+          value: {{ if .Values.persistence.enabled }}{{ .Values.persistence.mountPath | default "/app/data" }}{{ else }}"/tmp/cadence-data"{{ end }}
+        # PostgreSQL connection
+        {{- if .Values.postgresql.external }}
+        # External/managed PG — CADENCE_PRIMARY_DB_URL from ExternalSecret.
+        # Populated per medicard/staging setup: hapihub-secrets already
+        # holds DATABASE_URI (sslmode=require etc.); reuse it verbatim.
+        - name: CADENCE_PRIMARY_DB_URL
           valueFrom:
             secretKeyRef:
-              name: mongodb
-              key: mongodb-root-password
-        # MONGO_URI is constructed at runtime via entrypoint wrapper
-        # to URL-encode the password (handles special chars like @, !, etc.)
-        # Service URLs from dependencies
+              name: {{ .Values.postgresql.auth.existingSecret | required "postgresql.auth.existingSecret required when postgresql.external=true" }}
+              key: {{ .Values.postgresql.auth.uriKey | default "DATABASE_URI" }}
+        {{- else if .Values.postgresql.enabled }}
+        - name: POSTGRESQL_USER
+          value: {{ include "cadence.postgresql.username" . | quote }}
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresql.auth.existingSecret | default "postgresql" }}
+              key: postgres-password
+        - name: CADENCE_PRIMARY_DB_URL
+          value: "postgres://$(POSTGRESQL_USER):$(POSTGRESQL_PASSWORD)@{{ include "cadence.postgresql.host" . }}:5432/{{ include "cadence.postgresql.database" . }}"
+        {{- end }}
+        # JWKS URL for JWT validation (from HapiHub)
+        - name: CADENCE_JWKS_URL
+          value: {{ include "cadence.hapihub.jwksUrl" . | quote }}
+        # Valkey metadata backend
         {{- if .Values.valkey.enabled }}
-        - name: REDIS_URL
-          value: {{ include "cadence.valkey.url" . | quote }}
+        - name: CADENCE_METADATA_BACKEND
+          value: "valkey"
+        - name: VALKEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.valkey.auth.existingSecret | default "valkey" }}
+              key: {{ .Values.valkey.auth.secretKey | default "valkey-password" }}
+        - name: CADENCE_VALKEY_URL
+          value: "redis://:$(VALKEY_PASSWORD)@{{ include "cadence.valkey.host" . }}:{{ .Values.valkey.port | default 6379 }}"
+        {{- end }}
+        # Phase 3 PG-native changelog. When enabled, cadence dual-writes
+        # changelog entries to both Valkey and a cadence-owned PG schema.
+        # `readFrom` selects the authoritative read source. Defaults the
+        # DSN to the hapihub PG (same DB; cadence writes its own schema).
+        {{- if (.Values.pgChangelog | default dict).enabled }}
+        - name: CADENCE_PG_CHANGELOG_URL
+          value: {{ default (printf "postgres://$(POSTGRESQL_USER):$(POSTGRESQL_PASSWORD)@%s:5432/%s" (include "cadence.postgresql.host" .) (include "cadence.postgresql.database" .)) .Values.pgChangelog.url | quote }}
+        - name: CADENCE_CHANGELOG_READ_FROM
+          value: {{ .Values.pgChangelog.readFrom | default "valkey" | quote }}
+        - name: CADENCE_CHANGELOG_RETENTION_DAYS
+          value: {{ .Values.pgChangelog.retentionDays | default 7 | quote }}
         {{- end }}
         # Load secrets from External Secrets Operator
         {{- if .Values.externalSecrets.enabled }}
-        - name: JWT_SECRET
+        {{- range .Values.externalSecrets.secrets }}
+        - name: {{ .secretKey }}
           valueFrom:
             secretKeyRef:
-              name: {{ include "cadence.fullname" . }}-secrets
-              key: JWT_SECRET
-        - name: ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "cadence.fullname" . }}-secrets
-              key: ENCRYPTION_KEY
-              optional: true
+              name: {{ include "cadence.fullname" $ }}-secrets
+              key: {{ .secretKey }}
+        {{- end }}
         {{- end }}
         # Additional environment variables from config
         {{- range $key, $value := .Values.config }}
-        {{- if not (has $key (list "NODE_ENV" "LOG_LEVEL" "PORT")) }}
+        {{- if not (has $key (list "RUST_LOG")) }}
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- if .Values.config.RUST_LOG }}
+        - name: RUST_LOG
+          value: {{ .Values.config.RUST_LOG | quote }}
+        {{- end }}
+        # Custom environment variables
+        {{- with .Values.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /app/cadence.yml
+          subPath: cadence.yml
+          readOnly: true
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          mountPath: {{ .Values.persistence.mountPath | default "/app/data" }}
+        {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "cadence.fullname" . }}
+          items:
+          - key: cadence.yml
+            path: cadence.yml
+      {{- if .Values.persistence.enabled }}
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "cadence.fullname" . }}-data
+      {{- end }}
       {{- $nodePool := include "cadence.nodePool" . -}}
       {{- if or $nodePool .Values.nodeSelector }}
       nodeSelector:

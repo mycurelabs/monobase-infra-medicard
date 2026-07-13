@@ -38,7 +38,7 @@ helm.sh/chart: {{ include "cadence.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: mycure
+app.kubernetes.io/part-of: monobase
 {{- end }}
 
 {{/*
@@ -93,31 +93,45 @@ Gateway parent reference namespace
 {{- end }}
 
 {{/*
-MongoDB host - constructs hostname from MongoDB dependency
+PostgreSQL host - constructs hostname from PostgreSQL dependency
 */}}
-{{- define "cadence.mongodb.host" -}}
-{{- $serviceName := .Values.mongodb.serviceName | default "mongodb" -}}
+{{- define "cadence.postgresql.host" -}}
+{{- $serviceName := .Values.postgresql.serviceName | default "postgresql" -}}
 {{- $namespace := include "cadence.namespace" . -}}
 {{- printf "%s.%s.svc.cluster.local" $serviceName $namespace -}}
 {{- end }}
 
 {{/*
-MongoDB connection URL (without password - app substitutes from env var)
+PostgreSQL database name
 */}}
-{{- define "cadence.mongodb.connectionUrl" -}}
-{{- $host := include "cadence.mongodb.host" . -}}
-{{- $database := .Values.mongodb.database | default "hapihub" -}}
-mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@{{ $host }}:27017/{{ $database }}?authSource=admin
+{{- define "cadence.postgresql.database" -}}
+{{- .Values.postgresql.auth.database | default "hapihub" -}}
 {{- end }}
 
 {{/*
-Valkey (Redis) URL - constructs connection URL from Valkey dependency
+PostgreSQL username
 */}}
-{{- define "cadence.valkey.url" -}}
-{{- if .Values.valkey.enabled -}}
+{{- define "cadence.postgresql.username" -}}
+{{- .Values.postgresql.auth.username | default "postgres" -}}
+{{- end }}
+
+{{/*
+HapiHub JWKS URL - constructs internal URL for JWT validation
+*/}}
+{{- define "cadence.hapihub.jwksUrl" -}}
+{{- $serviceName := .Values.hapihub.serviceName | default "hapihub" -}}
+{{- $port := .Values.hapihub.port | default 7500 -}}
 {{- $namespace := include "cadence.namespace" . -}}
-redis://valkey-master.{{ $namespace }}.svc.cluster.local:6379
-{{- end -}}
+{{- printf "http://%s.%s.svc.cluster.local:%v/.well-known/jwks.json" $serviceName $namespace $port -}}
+{{- end }}
+
+{{/*
+Valkey host - constructs internal hostname for metadata backend
+*/}}
+{{- define "cadence.valkey.host" -}}
+{{- $serviceName := .Values.valkey.serviceName | default "valkey-primary" -}}
+{{- $namespace := include "cadence.namespace" . -}}
+{{- printf "%s.%s.svc.cluster.local" $serviceName $namespace -}}
 {{- end }}
 
 {{/*
