@@ -132,13 +132,16 @@ hapihub:
     enabled: false  # v11 is PG-only
 
   minio:
-    # ponytail: MinIO the subchart stays off — s3proxy replaces it and
-    # advertises itself as a Service named `minio` (fullnameOverride) so
-    # hapihub's chart branch works verbatim.
+    # `minio` here is a legacy values-namespace name — the actual backend
+    # is s3proxy (see the top-level `s3proxy:` block). serviceName /
+    # secretName point hapihub's STORAGE_S3_* env at the s3proxy
+    # Service + Secret.
     enabled: true
-    # Reuse MediCard's pre-created Azure Blob container (`blobmpseapmycurex01`)
-    # via s3proxy. Same container velero writes to; hapihub uses distinct
-    # paths so cohabitation is safe.
+    serviceName: s3proxy
+    secretName: s3proxy
+    # Reuse MediCard's pre-created Azure Blob container. Velero writes
+    # under its own prefix; hapihub uses distinct paths so cohabitation
+    # is safe.
     defaultBuckets: "blobmpseapmycurex01"
 
   valkey:
@@ -333,27 +336,17 @@ valkey:
   enabled: false
 
 # ===== STORAGE: MinIO Object Storage (Bitnami subchart) =====
-# Kept disabled — s3proxy (below) replaces it, taking the same Service name
-# `minio` via fullnameOverride so hapihub's chart branch works verbatim.
+# Disabled in prod — s3proxy (below) replaces it. Hapihub is pointed at
+# s3proxy via hapihub.minio.serviceName / secretName above.
 minio:
   enabled: false
 
 # ===== STORAGE: s3proxy → native Azure Blob =====
 # Stateless S3→Blob translator (jclouds azureblob). Presents an S3 API on
-# port 9000 through a Service literally named `minio` so hapihub finds it
-# without any chart change. All bytes live in native Azure Blob per the
-# Infrastructure Clarifications sheet (row 5.c.xii).
-#
-# Blockers before this goes green:
-#   1. ESO ClusterSecretStore Ready (see bootstrap report §3.1 — MediCard MI).
-#   2. KV entries populated in kv-mpi-sea-p-mycurex01:
-#      - medicard-prod-azureblob-account-name  (MediCard writes)
-#      - medicard-prod-azureblob-account-key   (MediCard writes)
-# The S3-side credential (root-password on the `minio` Secret) is minted
-# in-cluster by ESO's Password generator — no external KV entry needed.
+# port 9000 as a Service named `s3proxy`. All bytes live in native Azure
+# Blob per the Infrastructure Clarifications sheet (row 5.c.xii).
 s3proxy:
   enabled: true
-  fullnameOverride: minio  # Service + Secret both named `minio`
 
   externalSecrets:
     enabled: true

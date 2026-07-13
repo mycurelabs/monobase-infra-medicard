@@ -210,3 +210,16 @@ serviceMonitor:
   enabled: false
   interval: 30s
   path: /metrics
+
+# MinIO / S3-compatible storage integration.
+# Historically named `minio` because the original backend was MinIO;
+# `serviceName` and `secretName` make this pluggable — set them to point
+# at any S3-compatible backend in-cluster (e.g., s3proxy in prod).
+minio:
+  enabled: false
+  # Service and Secret hapihub reads for its S3 client. Defaults preserve
+  # historical behaviour (real Bitnami MinIO deployed under the name `minio`).
+  serviceName: "minio"
+  secretName: "minio"
+  defaultBuckets: ""
+  region: ""

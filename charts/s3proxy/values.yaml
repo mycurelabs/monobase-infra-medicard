@@ -15,10 +15,7 @@ global:
 enabled: false
 
 nameOverride: ""
-# Deliberate: makes Service + workload named `minio` so hapihub's
-# `hapihub.minio.url` helper resolves to us. Never override unless you're
-# also changing the hapihub chart.
-fullnameOverride: "minio"
+fullnameOverride: ""
 
 replicaCount: 1
 
