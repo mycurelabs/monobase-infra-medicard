@@ -135,8 +135,22 @@ argocd:
 
     argocdUrl: https://argocd-mycurex.medicardphils.com  # DEPLOYMENT-SPECIFIC: prod ArgoCD URL (behind MediCard App Gateway)
 
+    # Slack token binding — resolves via the `argocd-notifications-secret`
+    # k8s Secret populated by the ExternalSecret in
+    # charts/argocd-infrastructure/templates/argocd-notifications-externalsecret.yaml.
+    # TODO: populate KV entry `medicard-prod-argocd-slack-token` with a real
+    # Slack bot token, then flip `notifications.slack.enabled: true` (below)
+    # so the ExternalSecret renders. Until then $slack-token is unresolved
+    # and Slack posts fail silently.
+    slack:
+      enabled: false
+      externalSecretKey: medicard-prod-argocd-slack-token
+      secretStore: azure-secretstore
+      refreshInterval: 1h
+
     notifiers:
-      # Slack notifications
+      # Slack notifications — `$slack-token` reference is populated at
+      # runtime from the ExternalSecret-managed argocd-notifications-secret.
       service.slack: |
         token: $slack-token
       # Email notifications (requires SMTP configuration in deployment-specific values)
