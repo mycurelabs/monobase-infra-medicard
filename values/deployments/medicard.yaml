@@ -132,6 +132,13 @@ hapihub:
         remoteKey: medicard-prod-enc-billing-items
       - secretKey: ENC_BILLING_PAYMENTS
         remoteKey: medicard-prod-enc-billing-payments
+      # Mongo source URI (Atlas). hapihub itself is PG-only and reads
+      # this env as optional — leaving MONGO_URI unset is fine at
+      # runtime. Syncing it here gives us a k8s Secret key we can mount
+      # into a read-only mongo client pod for investigation, until the
+      # hapihub-migrator chart gains its own ExternalSecret template.
+      - secretKey: MONGO_URI
+        remoteKey: medicard-prod-mongo-source-uri
 
   # v11: PostgreSQL-only (external Azure PG)
   postgresql:
