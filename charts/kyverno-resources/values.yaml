@@ -26,16 +26,24 @@ policies:
       # Your organization
       - "ghcr.io/monobaselabs/*"
 
+      # Organization
+      - "ghcr.io/mycurelabs/*"
+
       # Trusted third-party registries
       - "bitnami/*"
+      - "docker.io/bitnamilegacy/*"
       - "registry.k8s.io/*"
       - "k8s.gcr.io/*"
 
-      # Monitoring tools
+      # AKS-injected / Azure-managed images
+      - "mcr.microsoft.com/*"
+
+      # Monitoring / logging
       - "docker.io/grafana/*"
       - "docker.io/prom/*"
       - "quay.io/prometheus/*"
       - "quay.io/prometheus-operator/*"
+      - "kiwigrid/*"
 
       # Cert-manager
       - "quay.io/jetstack/*"
@@ -44,8 +52,9 @@ policies:
       - "docker.io/falcosecurity/*"
       - "ghcr.io/kyverno/*"
 
-      # External Secrets
+      # External Secrets + Dex
       - "ghcr.io/external-secrets/*"
+      - "ghcr.io/dexidp/*"
 
       # Envoy Gateway
       - "envoyproxy/*"
@@ -53,6 +62,10 @@ policies:
 
       # PostgreSQL
       - "docker.io/bitnami/postgresql*"
+
+      # Storage: s3proxy (Docker Hub direct), Velero
+      - "andrewgaul/*"
+      - "docker.io/velero/*"
 
       # Valkey (Redis)
       - "docker.io/valkey/*"

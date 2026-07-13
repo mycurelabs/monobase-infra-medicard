@@ -403,9 +403,28 @@ externalDNS:
           cpu: 50m
           memory: 64Mi
 
-# Kyverno - Policy engine
+# Kyverno - Policy engine.
+# Operator + three ClusterPolicies from charts/kyverno-resources:
+#   podSecurity        (enforce) - PSS restricted profile check
+#   requireLabels      (enforce) - standard ownership/env labels required
+#   restrictRegistries (audit)   - flag images from non-allowlisted registries
+# restrictRegistries stays audit-only until we've soaked the allow-list
+# against real prod traffic; flip to enforce once no false positives.
 kyverno:
-  enabled: false
+  enabled: true
+  version: "3.2.0"
+  namespace: kyverno
+  policies:
+    enabled: true
+    podSecurity:
+      enabled: true
+      action: enforce
+    requireLabels:
+      enabled: true
+      action: enforce
+    restrictRegistries:
+      enabled: true
+      action: audit
 
 # Velero - Backup and disaster recovery
 # Chart 12.0.1 (Velero 1.18). Enabled; credentials reuse the same Key Vault
