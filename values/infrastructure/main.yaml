@@ -642,3 +642,10 @@ monitoring:
   # get injected). Until then alerts fire silently.
   alertmanager:
     enabled: true
+    # HA: 3 replicas for gossip-quorum dedup. Chart wires the peer
+    # discovery + cluster.peer args automatically. With only 2 zones
+    # available, one zone runs 2/3 pods (soft anti-affinity does its
+    # best but doesn't fail scheduling); a full zone outage takes 2/3
+    # of the cluster but AM state (silences, active alerts) is
+    # reconstructable from what remains.
+    replicaCount: 3

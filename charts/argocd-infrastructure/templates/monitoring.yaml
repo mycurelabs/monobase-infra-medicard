@@ -92,8 +92,17 @@ spec:
         # Alertmanager — enabled with the chart's default (null) route only.
         # No receivers wired yet: alerts are visible in the Alertmanager UI/API
         # but delivered nowhere. Receiver config is a later, separate change.
+        #
+        # HA: replicaCount > 1 causes the prometheus-operator to configure
+        # `--cluster.peer` args automatically (peer discovery via the
+        # StatefulSet's headless service DNS). Odd count (3) for quorum
+        # dedup on notifications; podAntiAffinityPreset=soft (Bitnami
+        # shortcut for preferred anti-affinity on kubernetes.io/hostname)
+        # spreads the pods across nodes.
         alertmanager:
           enabled: {{ .Values.monitoring.alertmanager.enabled }}
+          replicaCount: {{ .Values.monitoring.alertmanager.replicaCount | default 1 }}
+          podAntiAffinityPreset: soft
           image:
             repository: bitnamilegacy/alertmanager
           persistence:
