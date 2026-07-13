@@ -475,7 +475,12 @@ velero:
 # Falco alerts can be forwarded via Alertmanager as well.
 falco:
   enabled: true
-  version: "4.6.1"
+  # Chart 4.6.1 ships Falco 0.38.1, which fails scap_init on AKS's
+  # 6.8.0-azure kernel (modern-BPF verifier / libscap incompat, upstream
+  # bug closed in Falco 0.39.0). Bumping to chart 9.1.0 (Falco 0.44.1)
+  # to pick up the fix. No values-key drift for the keys we set — the
+  # 4→9 chart diff is additive only.
+  version: "9.1.0"
   namespace: falco
   rules:
     enabled: true

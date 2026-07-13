@@ -18,9 +18,16 @@ spec:
   source:
     chart: falco
     repoURL: https://falcosecurity.github.io/charts
-    targetRevision: {{ .Values.falco.version | default "4.6.1" }}
+    targetRevision: {{ .Values.falco.version | default "9.1.0" }}
     helm:
       releaseName: falco
+      valuesObject:
+        # Pin the driver explicitly (chart 9.x defaults to `auto` which
+        # picks modern_ebpf on 5.8+ kernels — AKS is on 6.8 — but pinning
+        # avoids surprises if the auto-selection heuristic changes).
+        # modern_ebpf is CO-RE / no kernel-module build required.
+        driver:
+          kind: modern_ebpf
 
   destination:
     server: https://kubernetes.default.svc
