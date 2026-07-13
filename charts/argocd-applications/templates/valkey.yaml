@@ -26,15 +26,40 @@ spec:
     helm:
       releaseName: valkey
       valuesObject:
+        # `global.security.allowInsecureImages: true` is required so the
+        # chart accepts the bitnamilegacy image (Bitnami's chart 2.2.1
+        # verifies the image registry/repository and refuses non-original
+        # tags otherwise). Mirrors what mycure prod does.
+        {{- if .Values.valkey.global }}
+        global:
+          {{- toYaml .Values.valkey.global | nindent 10 }}
+        {{- else }}
+        global:
+          security:
+            allowInsecureImages: true
+        {{- end }}
         image:
           repository: {{ .Values.valkey.image.repository | default "bitnamilegacy/valkey" }}
           tag: {{ .Values.valkey.image.tag | default "8.0.1-debian-12-r2" }}
         architecture: {{ .Values.valkey.architecture | default "standalone" }}
-        master:
+        {{- if .Values.valkey.auth }}
+        auth:
+          enabled: true
+          existingSecret: {{ .Values.valkey.auth.existingSecret | default "valkey" }}
+        {{- end }}
+        # Bitnami's chart 2.x uses `primary:` (not `master:`) for standalone
+        # architecture — align with the new key. `master:` in medicard values
+        # is kept for readability + parity with mycure's older naming.
+        primary:
           persistence:
             enabled: {{ .Values.valkey.master.persistence.enabled | default false }}
             storageClass: {{ .Values.valkey.master.persistence.storageClass | default "" }}
             size: {{ .Values.valkey.master.persistence.size | default "8Gi" }}
+          {{- if .Values.valkey.master.resources }}
+          resourcesPreset: "none"
+          resources:
+            {{- toYaml .Values.valkey.master.resources | nindent 12 }}
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc
