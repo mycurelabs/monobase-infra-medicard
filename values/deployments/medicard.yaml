@@ -225,18 +225,19 @@ mycure:
     minAvailable: 1
 
 # ===== HEALTHCARE: Cadence Real-time Sync (WebSocket) =====
-# Re-enabled 2026-07-13. The preprod 2026-04-07 stickiness concern no
-# longer applies: cadence 0.5.13+ moved state to PG/Valkey (leader-
-# elected internally), so a single-replica pod is safe with no
-# per-client session affinity. Mycure prod runs the same pattern at
-# `replicaCount: 1`.
-#
-# Chart is now the mycure-lineage cadence (Rust rewrite) — image
-# ghcr.io/mycurelabs/cadence, NOT the legacy syncd. Backend: external
-# Azure PG (via hapihub-secrets DATABASE_URI, `postgresql.external: true`
-# mode added to chart) + in-cluster valkey (same instance hapihub uses).
+# Re-enable attempt 2026-07-13 stalled on TLS handshake to Azure PG.
+# Chart backport + postgresql.external mode landed (commit 0d73adc) —
+# the code path works — but the cadence Rust PG driver fails the TLS
+# handshake against mpiazeppgdb0003.postgres.database.azure.com:5432
+# even with the shared hapihub DATABASE_URI (?sslmode=require). Likely
+# the driver ships rustls without a CA bundle and needs either:
+#   - an explicit sslrootcert path (mount Azure's DigiCert cert), OR
+#   - PGSSLMODE=require env override + a driver flag to skip cert verify.
+# Investigate before re-flipping. Chart, image, valkey wiring, and
+# postgresql.external mode all stay in place so the flip is a single-
+# value change once the TLS path is proven.
 cadence:
-  enabled: true
+  enabled: false
 
   image:
     repository: ghcr.io/mycurelabs/cadence
