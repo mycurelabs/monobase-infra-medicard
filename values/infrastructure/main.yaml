@@ -557,6 +557,13 @@ loki:
 # Monitoring - Prometheus + Grafana stack
 monitoring:
   enabled: true
+
+  # Bitnami kube-prometheus chart version. Pin so ArgoCD reconciles
+  # against a known revision (previously the Application template used
+  # .Values.monitoring.version with no default, silently pulling
+  # whatever `latest` resolved to at render time). Currently deployed:
+  # 11.3.9 → bumping to 11.3.10 (latest available) as the pin.
+  version: "11.3.10"
   
   # Prometheus configuration
   prometheus:

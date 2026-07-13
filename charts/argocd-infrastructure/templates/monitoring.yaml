@@ -17,7 +17,7 @@ spec:
   source:
     chart: kube-prometheus
     repoURL: registry-1.docker.io/bitnamicharts
-    targetRevision: {{ .Values.monitoring.version }}
+    targetRevision: {{ .Values.monitoring.version | default "11.3.10" }}
     helm:
       releaseName: monitoring
       valuesObject:
