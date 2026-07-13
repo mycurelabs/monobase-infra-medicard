@@ -17,7 +17,11 @@ spec:
   source:
     chart: valkey
     repoURL: https://charts.bitnami.com/bitnami
-    targetRevision: 2.x.x
+    # `2.x.x` isn't a valid `helm pull --version` spec — use a semver
+    # constraint. Chart 2.4.7 is the release that ships valkey 8.0.1
+    # (matching the image tag in medicard's values). Bumping the minor
+    # is fine; a major would need a re-audit.
+    targetRevision: {{ .Values.valkey.chartVersion | default "~2.4.7" }}
     helm:
       releaseName: valkey
       valuesObject:
