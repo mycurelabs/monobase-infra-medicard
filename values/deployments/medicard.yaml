@@ -50,7 +50,11 @@ hapihub:
     tag: "11.20.47"
     pullPolicy: IfNotPresent
 
-  replicaCount: 1
+  # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
+  # (kubernetes.io/hostname). PDB (below) keeps at least 1 pod up during
+  # voluntary disruptions. CLUSTER_INSTANCES matches replicaCount so
+  # hapihub's internal worker count doesn't collide across pods.
+  replicaCount: 2
 
   nodeSelector:
     kubernetes.io/arch: amd64
@@ -71,7 +75,7 @@ hapihub:
       enabled: false
 
   config:
-    CLUSTER_INSTANCES: "1"
+    CLUSTER_INSTANCES: "2"
     BETTER_AUTH_RATE_LIMIT_ENABLED: "true"
     BETTER_AUTH_RATE_LIMIT_WINDOW: "60"
     BETTER_AUTH_RATE_LIMIT_MAX: "300"
@@ -90,7 +94,8 @@ hapihub:
     enabled: true
 
   podDisruptionBudget:
-    enabled: false
+    enabled: true
+    minAvailable: 1
 
   autoscaling:
     enabled: false
@@ -164,10 +169,26 @@ mycure:
     tag: "10.25.68"
     pullPolicy: IfNotPresent
 
-  replicaCount: 1
+  # HA: 2 replicas + preferred hostname anti-affinity so the two land on
+  # different nodes. Chart ships `affinity: {}` empty by default, so we
+  # set the block here.
+  replicaCount: 2
 
   nodeSelector:
     kubernetes.io/arch: amd64
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - mycure
+            topologyKey: kubernetes.io/hostname
 
   resources:
     requests:
@@ -186,7 +207,8 @@ mycure:
     HAPIHUB_URL: "https://api-mycurex.medicardphils.com"
 
   podDisruptionBudget:
-    enabled: false
+    enabled: true
+    minAvailable: 1
 
 # ===== HEALTHCARE: Cadence Real-time Sync (WebSocket) =====
 # Disabled: matching preprod 2026-04-07 incident decision
@@ -352,6 +374,27 @@ minio:
 # Blob per the Infrastructure Clarifications sheet (row 5.c.xii).
 s3proxy:
   enabled: true
+
+  # HA: 2 replicas. s3proxy is a pure jclouds pass-through — no local
+  # state — so a second pod behind the Service is safe.
+  replicaCount: 2
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - s3proxy
+            topologyKey: kubernetes.io/hostname
 
   externalSecrets:
     enabled: true

@@ -20,6 +20,10 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # PSS restricted profile — the s3proxy image already runs as user
       # s3proxy (non-root), so nothing here fights the app.
       securityContext:

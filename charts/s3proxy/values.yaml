@@ -38,6 +38,15 @@ resources:
 nodeSelector:
   kubernetes.io/arch: amd64
 
+# HA knobs — chart defaults are conservative (single-replica, no PDB, no
+# anti-affinity). Deployments that want HA (e.g. MediCard prod) flip
+# replicaCount + podDisruptionBudget + affinity in their values override.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+affinity: {}
+
 # ExternalSecret populates the k8s Secret named `minio` with:
 #   root-user            → S3PROXY_IDENTITY  (also read by hapihub) — from s3Identity below
 #   root-password        → S3PROXY_CREDENTIAL (also read by hapihub) — minted in-cluster by
