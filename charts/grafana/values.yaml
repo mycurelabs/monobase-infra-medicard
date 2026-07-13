@@ -26,7 +26,14 @@ grafana:
     user: admin
     password: admin  # Change via External Secrets in production
 
-  # Prometheus datasource auto-configuration
+  # Auto-provisioned datasources.
+  # Prometheus: the metrics store (kube-prometheus-stack service in the
+  # monitoring namespace).
+  # Loki: the logs store (grafana/loki chart in single-binary mode; service
+  # name is `loki` in the same monitoring namespace, port 3100). Wiring
+  # this here lets ops query logs from the same Grafana UI as metrics —
+  # required for Falco alert investigation (Falco → stdout → Promtail →
+  # Loki → Grafana Explore).
   datasources:
     secretDefinition:
       apiVersion: 1
@@ -39,6 +46,14 @@ grafana:
           editable: true
           jsonData:
             timeInterval: 30s
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki.monitoring.svc.cluster.local:3100
+          isDefault: false
+          editable: true
+          jsonData:
+            maxLines: 1000
 
   # Resource configuration (minimal for staging)
   resources:
