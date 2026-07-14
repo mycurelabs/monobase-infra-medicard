@@ -1,6 +1,6 @@
 # 2026-07-13 — Prod Cluster State + Pre-Migrator Backup Ask
 
-**Status:** Prod cluster is HA-hardened, cache-tier live, observability + security operators fully deployed. All tenant apps (`hapihub`, `mycure`, `s3proxy`) are healthy at 2/2. The `hapihub-migrator` remains paused by design (`replicaCount: 0`) — it is a manually-triggered, one-shot bulk operation. **Before we schedule the migrator's first run, please confirm that Azure PG and Atlas Mongo backup coverage is in place** — details in §5.
+**Status:** Prod cluster is HA-hardened, cache-tier live, observability + security operators fully deployed. All tenant apps (`hapihub`, `mycure`, `s3proxy`) are healthy at 2/2. The `hapihub-migrator` remains paused by design (`replicaCount: 0`). **Before we start / test the migrator script again, please confirm that a current backup of the prod Postgres DB (`mpiazeppgdb0003`) is in place** — details in §4.
 
 **Environment under test:** Production AKS cluster `aks-mpi-sea-p-mycurex01`.
 **Access path:** kubectl executed from `mc.remote.prd.bastion` via `ssh medicard.gateway`.
@@ -47,23 +47,19 @@
   - Scope: Kubernetes API objects (Deployments, Secrets, ConfigMaps, PVCs and their contents). Restores redeploy the cluster state, not the source data behind external services.
 - **Does NOT ship (out of our scope):**
   - **Azure Postgres `mpiazeppgdb0003`** — this is the managed Azure DB for PostgreSQL Flexible Server behind hapihub + migrator + cadence. Its backup posture (Point-In-Time Restore retention, geo-redundant backup) is set on MediCard's Azure subscription. Velero does not read from or back up managed DBs.
-  - **MongoDB Atlas source** (per the KV `medicard-prod-mongo-source-uri`) — Atlas's own continuous-backup / snapshot policy applies. Set on MediCard's Atlas project.
 
 ## 4. The ask
 
-The `hapihub-migrator` is a manually-un-paused, bulk-write operation targeting the Azure PG (source Mongo Atlas → target PG). Before the first scheduled run, MediCard's confirmation on the following would materially reduce downside risk. This is observation only — the operational settings are on MediCard's side of the boundary.
+The `hapihub-migrator` is a bulk-write operation against the prod Azure Postgres (`mpiazeppgdb0003.postgres.database.azure.com`). Before we start / test the migrator script again, please confirm on MediCard's side that a current backup of the prod PG database is in place — so that if the run produces an unexpected result, restoring to the pre-run state is a straightforward operation.
 
-1. **Azure PG PITR / retention confirmation.** For `mpiazeppgdb0003.postgres.database.azure.com`:
-   - Is PITR enabled?
-   - What retention window is configured?
-   - Does that window cover the intended operation timeline plus a soak period afterward (i.e. is there enough headroom to roll back if a downstream effect is discovered days later)?
-2. **Atlas Mongo backup coverage.** For the source database referenced by `medicard-prod-mongo-source-uri`:
-   - Is continuous backup or an on-demand snapshot policy in place?
-   - Does the retention cover the migrator run + soak?
-   - Note: the migrator reads-only from Mongo, so Atlas won't be mutated by our runs; but if any re-run or drift-analysis is needed, the Mongo source at run-time is the reference-of-record and should be recoverable.
+Any of the following counts as a confirmation:
 
-Both are questions, not asks-to-act. Once MediCard confirms the coverage, we can schedule the migrator run and produce a run-book proposal for the execution window.
+- **Point-In-Time Restore (PITR)** enabled on the Azure PG Flexible Server, with a retention window that covers the planned run + a soak period afterward.
+- **An on-demand backup / snapshot** taken shortly before the run.
+- **A pg_dump export** of the relevant schemas held off-server for the operation window.
+
+This is a question, not an ask-to-act — the backup posture and the choice of method are on MediCard's side. Once MediCard confirms the coverage is in place, we can schedule the migrator run and produce a run-book proposal for the execution window.
 
 ## 5. Handover
 
-This report is being handed to russherr on `mycurelabs/monobase-mycure#2247` for MediCard-side confirmation of the two backup coverage questions above.
+This report is being handed to russherr on `mycurelabs/monobase-mycure#2247` for MediCard-side confirmation of the prod PG backup coverage question above.
