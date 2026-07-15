@@ -1,7 +1,7 @@
 ---
 name: kubectl-access
 description: This skill should be used whenever Claude needs to run `kubectl` against a cluster from this repo — checking pods, logs, events, applying or describing resources, troubleshooting, or any operation that needs a kubeconfig + context. It deterministically resolves which kubeconfig and context to use, persists the choice locally (gitignored), and never mutates the user's shell state.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # kubectl-access
@@ -76,6 +76,22 @@ kubectl --kubeconfig <path> --context <ctx> <subcommand> ...
 
 This is non-negotiable. Never `export KUBECONFIG`, never `kubectl config use-context`.
 
+## Prod cluster — not local, bastion-only
+
+The resolution algorithm above only finds **local** kubeconfigs, and those reach **staging** (`aks-mpi-sea-a-mycurex01`) only. The **prod** cluster `aks-mpi-sea-p-mycurex01` is Azure **Private Link** — its API is unreachable from any laptop, even on VPN. There is no prod entry in `.kube/config` and there should not be one.
+
+Prod `kubectl` runs from the operator jumphost `mc.remote.prd.bastion`, reached two-hop via `ssh medicard.gateway`:
+
+```bash
+ssh medicard.gateway "ssh mc.remote.prd.bastion 'kubectl <subcommand> ...'"
+```
+
+On the bastion, `kubectl` (v1.31.0) is preconfigured with a single context `aks-mpi-sea-p-mycurex01`, current by default — so **do not** pass `--kubeconfig`/`--context` there; that's this repo's local rule, not the bastion's. Do not copy the prod kubeconfig locally — that defeats the private-link boundary and won't work anyway.
+
+**Prod is read-only by default.** Stick to `get` / `describe` / `logs` / `cluster-info` / `config view`. No `apply` / `delete` / `edit` / `patch` / mutating `exec` / `port-forward` without an explicit user instruction. Prod deploys happen through GitOps (push to `main` → ArgoCD self-heals), not imperative kubectl.
+
+For the bastion/gateway access details (VPN requirement, host registry, connectivity troubleshooting), see the global `medicard-infra-access` skill.
+
 ## Re-prompt rules
 
 If the user says any of:
@@ -85,6 +101,8 @@ If the user says any of:
 - "use a different kubeconfig"
 
 …then delete `.kube/.claude-choice.json` (or the relevant field) and re-run the resolver from Step 2.
+
+**Exception — "use prod":** prod is never a local-kubeconfig choice. Do not re-run the resolver; route to the bastion two-hop under "Prod cluster — not local, bastion-only" above. "use staging" / "use the other cluster" means the local `.kube/config` context `aks-mpi-sea-a-mycurex01`.
 
 ## Migration of the legacy `.kubeconfig`
 
