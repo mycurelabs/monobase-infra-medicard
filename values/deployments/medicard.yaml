@@ -568,6 +568,34 @@ hapihubMigrator:
       name: "hapihub-migration-secrets"
       key: "pg-target-uri"
 
+  # Syncs `hapihub-migration-secrets` from Azure KV via the prod
+  # ClusterSecretStore. All eight KV entries confirmed present in
+  # kv-mpi-sea-p-mycurex01 (2026-07-07 bootstrap + 2026-07-10 revalidation).
+  # secretKey = key inside the k8s Secret (matches the Deployment's
+  # secretKeyRef keys); remoteKey = Azure KV entry name.
+  externalSecrets:
+    enabled: true
+    secretStore: azure-secretstore
+    secretStoreKind: ClusterSecretStore
+    refreshInterval: 1h
+    secrets:
+      - secretKey: mongo-source-uri
+        remoteKey: medicard-prod-mongo-source-uri
+      - secretKey: pg-target-uri
+        remoteKey: medicard-prod-pg-target-uri
+      - secretKey: pg-encryption-key
+        remoteKey: medicard-prod-pg-encryption-key
+      - secretKey: enc-personal-details
+        remoteKey: medicard-prod-enc-personal-details
+      - secretKey: enc-medical-records
+        remoteKey: medicard-prod-enc-medical-records
+      - secretKey: enc-billing-invoices
+        remoteKey: medicard-prod-enc-billing-invoices
+      - secretKey: enc-billing-items
+        remoteKey: medicard-prod-enc-billing-items
+      - secretKey: enc-billing-payments
+        remoteKey: medicard-prod-enc-billing-payments
+
 # ===== BACKUP =====
 backup:
   enabled: false

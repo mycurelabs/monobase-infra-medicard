@@ -81,6 +81,17 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# ExternalSecret: sync source/target/encryption secrets from the backing
+# store into `migration.existingSecret`. Off by default; per-deployment
+# values (e.g. values/deployments/medicard.yaml) turn it on and supply the
+# store + remoteKey mappings.
+externalSecrets:
+  enabled: false
+  secretStore: ""
+  secretStoreKind: SecretStore
+  refreshInterval: 1h
+  secrets: []
+
 # Migration configuration
 migration:
   mode: "bulk"
