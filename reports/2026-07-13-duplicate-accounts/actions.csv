@@ -1,0 +1,37 @@
+pair_id,lower_email,raw_email,uid,mongo_created_date,mongo_last_active_date,mongo_signins,mongo_verified,mongo_orgs,mongo_onboarded,pg_signins,pair_shape,action,rationale
+1,cebu.laboratory@medicardphils.com,CEBU.LABORATORY@medicardphils.com,63ab8ef593f65f24137115e8,2022-12-28,2026-02-03,8,false,1,n,0,only-one-active,STAY,canonical: 8 signins active 2026-02
+1,cebu.laboratory@medicardphils.com,cebu.laboratory@medicardphils.com,63ab8ea69ab43bbf043b1e9d,2022-12-28,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+2,eembudo@medicardphils.com,eembudo@Medicardphils.com,65263dd3476ce9229ce15c33,2023-10-11,2025-05-09,346,false,1,y,0,both-active,STAY,canonical: 346 signins active 2025-05 beats pair (79 active 2023-10)
+2,eembudo@medicardphils.com,eembudo@medicardphils.com,5de7f7044a1e9664a169bdd0,2019-12-04,2023-10-11,79,false,1,y,0,both-active,MERGE-INTO-65263dd3476ce9229ce15c33,active loser: last active 2023-10 vs canonical 2025-05
+3,ferlylapinig@gmail.com,Ferlylapinig@gmail.com,63856a5579627c1bab4e1b48,2022-11-29,2025-08-01,28,false,0,n,0,both-active,STAY,canonical: most recent activity 2025-08 (vs pair 2023-12); note pair has higher signins but stopped signing in 1.5y ago
+3,ferlylapinig@gmail.com,ferlylapinig@gmail.com,639ac1bc7e95a230afe7f620,2022-12-15,2023-12-16,305,false,1,y,0,both-active,MERGE-INTO-63856a5579627c1bab4e1b48,active loser: last active 2023-12 vs canonical 2025-08; higher historical signins (305)
+4,janemsalvadormd@yahoo.com,JaneMSalvadorMD@yahoo.com,5de7f76f4a1e9664a169bdf2,2019-12-04,2026-05-19,314,false,1,y,0,only-one-active,STAY,canonical: 314 signins active 2026-05
+4,janemsalvadormd@yahoo.com,janemsalvadormd@yahoo.com,691a5b5b83d6bfc2a520426a,2025-11-16,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+5,jazapico@medicardphils.com,JAZAPICO@medicardphils.com,66d7ae433a113b6af8213d44,2024-09-04,2026-04-16,13,false,1,y,0,both-active,STAY,canonical: 13 signins active 2026-04 beats pair (4 active 2024-08)
+5,jazapico@medicardphils.com,jazapico@medicardphils.com,66aadc9379b8c659f016a3ca,2024-08-01,2024-08-02,4,false,1,y,0,both-active,MERGE-INTO-66d7ae433a113b6af8213d44,active loser: last active 2024-08 vs canonical 2026-04
+6,jdumanat@medicardphils.com,jdumanat@medicardphils.com,63b51078ae14ce5dd22be68e,2023-01-04,never,0,false,1,y,0,both-dormant,STAY,canonical (both-dormant tiebreak): 1 org + onboarded=y
+6,jdumanat@medicardphils.com,Jdumanat@medicardphils.com,63b510af9e913c883a761026,2023-01-04,never,0,false,0,n,0,both-dormant,ARCHIVE,dormant loser: 0 orgs onboarded=n
+7,jeesleyer@medicardphils.com,Jeesleyer@medicardphils.com,5e26da232cbe6df829a71ce0,2020-01-21,2024-03-07,3,false,1,y,0,only-one-active,STAY,canonical: 3 signins active 2024-03
+7,jeesleyer@medicardphils.com,jeesleyer@medicardphils.com,60ebe7f1c9081d9a6a0f1175,2021-07-12,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+8,jrramirez@medicardphils.com,Jrramirez@medicardphils.com,63ca543838c7e84db3e9655a,2023-01-20,2026-06-01,12985,false,1,y,0,both-active,STAY,canonical: 12985 signins active 2026-06 beats pair (1222 active 2023-10)
+8,jrramirez@medicardphils.com,jrramirez@medicardphils.com,5de7f7b2c7650f648dc8c1d4,2019-12-04,2023-10-30,1222,false,2,y,0,both-active,MERGE-INTO-63ca543838c7e84db3e9655a,active loser: 1222 signins last active 2023-10; 2 org memberships to consolidate
+9,katrina_saliba@yahoo.com.ph,Katrina_saliba@yahoo.com.ph,62613cdde134b34c03307f0a,2022-04-21,2023-05-16,24,false,1,y,0,only-one-active,STAY,canonical: 24 signins active 2023-05
+9,katrina_saliba@yahoo.com.ph,katrina_saliba@yahoo.com.ph,634f65d8e1954f9c41b67ad8,2022-10-19,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+10,kristynellebonifacio@gmail.com,Kristynellebonifacio@gmail.com,64057528f4fbfa3509ae29cc,2023-03-06,2024-10-05,61,false,1,y,0,only-one-active,STAY,canonical: 61 signins active 2024-10
+10,kristynellebonifacio@gmail.com,kristynellebonifacio@gmail.com,65a1da869cd5f0ab9c55cc13,2024-01-13,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+11,mjcolong@medicardphils.com,MJcolong@medicardphils.com,67997163f5e89cfc05386b19,2025-01-29,2026-06-04,214,false,1,y,0,only-one-active,STAY,canonical: 214 signins active 2026-06
+11,mjcolong@medicardphils.com,mjcolong@medicardphils.com,67998d3923368a7bec0d88e3,2025-01-29,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in (created same day as canonical)
+12,nmenricoso@gmail.com,NMENRICOSO@GMAIL.COM,66c5290cb20892255409836b,2024-08-20,2025-09-30,22,false,1,y,0,only-one-active,STAY,canonical: 22 signins active 2025-09
+12,nmenricoso@gmail.com,nmenricoso@gmail.com,67bec9358ffa72306879e933,2025-02-26,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+13,rdimanlig@medicardphils.com,Rdimanlig@medicardphils.com,63b369d45305734e1c67ce73,2023-01-02,2023-12-26,367,false,1,y,0,only-one-active,STAY,canonical: 367 signins active 2023-12
+13,rdimanlig@medicardphils.com,rdimanlig@medicardphils.com,63ae8277dfcbb590380dfdcc,2022-12-30,never,0,false,0,n,0,only-one-active,ARCHIVE,ghost: never signed in
+14,regisyfu17@gmail.com,Regisyfu17@gmail.com,5df703c620e6f3187cdcdef1,2019-12-16,2025-08-16,5,false,1,y,0,only-one-active,STAY,canonical: 5 signins active 2025-08
+14,regisyfu17@gmail.com,regisyfu17@gmail.com,5de7f8dfc7650f648dc8c22e,2019-12-04,never,0,false,2,y,0,only-one-active,ARCHIVE,ghost: never signed in; 2 org memberships noted (refs remapped to canonical before archive)
+15,ritche_go@yahoo.com,Ritche_go@yahoo.com,5de7f8e887f4626497997f25,2019-12-04,2026-06-03,292,false,1,y,0,only-one-active,STAY,canonical: 292 signins active 2026-06
+15,ritche_go@yahoo.com,ritche_go@yahoo.com,62454741e134b34c03cdac4f,2022-03-31,never,0,false,1,y,0,only-one-active,ARCHIVE,ghost: never signed in
+16,rtan@medicardphils.com,RTAN@MEDICARDPHILS.COM,68916027256d810a58cc3ee1,2025-08-05,2026-06-02,45,false,1,y,0,only-one-active,STAY,canonical: 45 signins active 2026-06
+16,rtan@medicardphils.com,rtan@medicardphils.com,6957114b9d1edc4832a3cc77,2026-01-02,never,0,false,1,n,0,only-one-active,ARCHIVE,ghost: never signed in
+17,srmorito@gmail.com,SRMORITO@GMAIL.COM,68d9c7e1d43ba7878b67468d,2025-09-28,2025-10-14,5,false,1,y,0,both-active,STAY,canonical: 5 signins active 2025-10 beats pair (2 active 2023-08)
+17,srmorito@gmail.com,srmorito@gmail.com,60f7c7ac7590b24c0030af77,2021-07-21,2023-08-07,2,false,1,y,0,both-active,MERGE-INTO-68d9c7e1d43ba7878b67468d,active loser: last active 2023-08 vs canonical 2025-10
+18,tanmyro@gmail.com,Tanmyro@gmail.com,5de7f92587f4626497997f35,2019-12-04,2025-08-10,1,false,1,y,0,only-one-active,STAY,canonical: 1 signin active 2025-08
+18,tanmyro@gmail.com,tanmyro@gmail.com,5de7f924fd1696648383c135,2019-12-04,never,0,false,1,y,0,only-one-active,ARCHIVE,ghost: never signed in
