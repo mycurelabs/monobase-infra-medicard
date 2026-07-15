@@ -530,7 +530,7 @@ hapihubMigrator:
     tag: "3.9.3"
     pullPolicy: IfNotPresent
 
-  replicaCount: 0
+  replicaCount: 1
 
   nodeSelector:
     kubernetes.io/arch: amd64
