@@ -27,12 +27,27 @@
 --          will need to run again. Clean Mongo on your side before re-enabling
 --          the migrator, or accept the re-import.
 --
+-- Scope:   This script ONLY archives duplicate account rows. It does NOT
+--          remap the ~100 uid-ref columns across 141 tables that may point at
+--          the archived uids. Two reasons:
+--            1. Migration 0054 only inspects the `accounts` table itself —
+--               removing the duplicates is sufficient to make the invalid
+--               `accounts_email_lower_unique` index rebuild successfully.
+--            2. A dynamic ref-remap sweep is prohibitively slow against
+--               unindexed large tables in this schema (activity_logs = 84M
+--               rows; billing_items = 6.2M; billing_invoices = 2.9M — none
+--               of the uid-ref columns have supporting indexes).
+--          Consolidating downstream refs from the archived uids to the STAY
+--          uid is a separate follow-up and is MediCard's data-integrity
+--          decision. Audit-log tables (activity_logs) should arguably KEEP
+--          the historical uid unchanged — the event happened, and rewriting
+--          the actor is history revisionism. Billing/booking/consent tables
+--          may need consolidation on a per-case basis.
+--
 -- Safety:  Wrapped in a single transaction. Idempotent (safe to re-run;
 --          rows already moved to archive won't be reprocessed thanks to
 --          ON CONFLICT DO NOTHING + the accounts DELETE only hitting rows
---          that still exist). All MERGE ref-remaps use a dynamically
---          discovered set of uid-ref columns via information_schema —
---          scan the NOTICE output for surprises before committing.
+--          that still exist).
 -- ============================================================================
 
 \set ON_ERROR_STOP on
@@ -51,129 +66,51 @@ ALTER TABLE accounts_archive
 \echo '=== accounts_archive prepared ==='
 
 -- ----------------------------------------------------------------------------
--- 2a. ARCHIVE — 13 rows (12 only-one-active ghosts + 1 both-dormant loser)
---     Refs (if any) will be remapped in the same style as MERGE (step 2b)
---     before deletion. For pure ghosts with 0 refs, remap is a no-op.
---     The remap target is the STAY uid of the same pair (canonical row).
+-- 2. Archive all 18 loser rows in a single set-based INSERT + DELETE.
+--    Reason strings encode:
+--       ghost:<pair-label>        — only-one-active loser (12 rows)
+--       both-dormant:<pair-label> — both-dormant loser  (1 row)
+--       merge:<canonical-uid>     — both-active loser   (5 rows)
+--    MediCard can query accounts_archive by reason for per-shape audit.
 -- ----------------------------------------------------------------------------
+
 \echo ''
-\echo '=== 2a. ARCHIVE + remap refs to canonical ==='
+\echo '=== 2. Archive losers ==='
 
-DO $$
-DECLARE
-  archive_row record;
-  ref record;
-  updated bigint;
-BEGIN
-  FOR archive_row IN (
-    SELECT * FROM (VALUES
-      -- (loser_uid, canonical_uid, label)
-      ('63ab8ea69ab43bbf043b1e9d', '63ab8ef593f65f24137115e8', 'ghost:cebu.laboratory'),
-      ('691a5b5b83d6bfc2a520426a', '5de7f76f4a1e9664a169bdf2', 'ghost:janemsalvadormd'),
-      ('63b510af9e913c883a761026', '63b51078ae14ce5dd22be68e', 'both-dormant:jdumanat'),
-      ('60ebe7f1c9081d9a6a0f1175', '5e26da232cbe6df829a71ce0', 'ghost:jeesleyer'),
-      ('634f65d8e1954f9c41b67ad8', '62613cdde134b34c03307f0a', 'ghost:katrina_saliba'),
-      ('65a1da869cd5f0ab9c55cc13', '64057528f4fbfa3509ae29cc', 'ghost:kristynellebonifacio'),
-      ('67998d3923368a7bec0d88e3', '67997163f5e89cfc05386b19', 'ghost:mjcolong'),
-      ('67bec9358ffa72306879e933', '66c5290cb20892255409836b', 'ghost:nmenricoso'),
-      ('63ae8277dfcbb590380dfdcc', '63b369d45305734e1c67ce73', 'ghost:rdimanlig'),
-      ('5de7f8dfc7650f648dc8c22e', '5df703c620e6f3187cdcdef1', 'ghost:regisyfu17'),
-      ('62454741e134b34c03cdac4f', '5de7f8e887f4626497997f25', 'ghost:ritche_go'),
-      ('6957114b9d1edc4832a3cc77', '68916027256d810a58cc3ee1', 'ghost:rtan'),
-      ('5de7f924fd1696648383c135', '5de7f92587f4626497997f35', 'ghost:tanmyro')
-    ) AS a(loser_uid, canonical_uid, label)
-  )
-  LOOP
-    FOR ref IN
-      SELECT table_schema, table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND data_type = 'text'
-        AND (column_name ~ '(_by|_uid|_account|_id)$'
-             OR column_name IN ('account','user_id','owner_id','actor_id','actor','creator_account'))
-        AND table_name NOT IN ('accounts','accounts_archive')
-    LOOP
-      EXECUTE format(
-        'UPDATE %I.%I SET %I = $1 WHERE %I = $2',
-        ref.table_schema, ref.table_name, ref.column_name, ref.column_name
-      ) USING archive_row.canonical_uid, archive_row.loser_uid;
-      GET DIAGNOSTICS updated = ROW_COUNT;
-      IF updated > 0 THEN
-        RAISE NOTICE 'archive-remap %: %.% -> % rows',
-          archive_row.label, ref.table_name, ref.column_name, updated;
-      END IF;
-    END LOOP;
+WITH losers(uid, reason) AS (VALUES
+  -- 13 ARCHIVE (12 ghost + 1 both-dormant loser)
+  ('63ab8ea69ab43bbf043b1e9d', 'ghost:cebu.laboratory'),
+  ('691a5b5b83d6bfc2a520426a', 'ghost:janemsalvadormd'),
+  ('63b510af9e913c883a761026', 'both-dormant:jdumanat'),
+  ('60ebe7f1c9081d9a6a0f1175', 'ghost:jeesleyer'),
+  ('634f65d8e1954f9c41b67ad8', 'ghost:katrina_saliba'),
+  ('65a1da869cd5f0ab9c55cc13', 'ghost:kristynellebonifacio'),
+  ('67998d3923368a7bec0d88e3', 'ghost:mjcolong'),
+  ('67bec9358ffa72306879e933', 'ghost:nmenricoso'),
+  ('63ae8277dfcbb590380dfdcc', 'ghost:rdimanlig'),
+  ('5de7f8dfc7650f648dc8c22e', 'ghost:regisyfu17'),
+  ('62454741e134b34c03cdac4f', 'ghost:ritche_go'),
+  ('6957114b9d1edc4832a3cc77', 'ghost:rtan'),
+  ('5de7f924fd1696648383c135', 'ghost:tanmyro'),
+  -- 5 MERGE (both-active losers; reason encodes the STAY canonical uid)
+  ('5de7f7044a1e9664a169bdd0', 'merge:65263dd3476ce9229ce15c33'),  -- eembudo
+  ('639ac1bc7e95a230afe7f620', 'merge:63856a5579627c1bab4e1b48'),  -- ferlylapinig
+  ('66aadc9379b8c659f016a3ca', 'merge:66d7ae433a113b6af8213d44'),  -- jazapico
+  ('5de7f7b2c7650f648dc8c1d4', 'merge:63ca543838c7e84db3e9655a'),  -- jrramirez
+  ('60f7c7ac7590b24c0030af77', 'merge:68d9c7e1d43ba7878b67468d')   -- srmorito
+),
+inserted AS (
+  INSERT INTO accounts_archive
+    SELECT a.*, now(), l.reason
+    FROM accounts a JOIN losers l USING (uid)
+    ON CONFLICT (uid) DO NOTHING
+    RETURNING uid
+)
+SELECT count(*) AS archived_count FROM inserted;
 
-    INSERT INTO accounts_archive
-      SELECT a.*, now(), archive_row.label
-      FROM accounts a
-      WHERE a.uid = archive_row.loser_uid
-      ON CONFLICT (uid) DO NOTHING;
+DELETE FROM accounts WHERE uid IN (SELECT uid FROM losers);
 
-    DELETE FROM accounts WHERE uid = archive_row.loser_uid;
-    IF FOUND THEN
-      RAISE NOTICE 'archived: % (uid %)', archive_row.label, archive_row.loser_uid;
-    END IF;
-  END LOOP;
-END $$;
-
--- ----------------------------------------------------------------------------
--- 2b. MERGE — 5 both-active pairs: remap refs from loser to canonical, then
---     archive the loser row with a `dup:merged-into:<canonical>` reason.
--- ----------------------------------------------------------------------------
-\echo ''
-\echo '=== 2b. MERGE + remap refs to canonical ==='
-
-DO $$
-DECLARE
-  merge_row record;
-  ref record;
-  updated bigint;
-BEGIN
-  FOR merge_row IN (
-    SELECT * FROM (VALUES
-      -- (loser_uid, canonical_uid, label)
-      ('5de7f7044a1e9664a169bdd0', '65263dd3476ce9229ce15c33', 'merge:eembudo'),
-      ('639ac1bc7e95a230afe7f620', '63856a5579627c1bab4e1b48', 'merge:ferlylapinig'),
-      ('66aadc9379b8c659f016a3ca', '66d7ae433a113b6af8213d44', 'merge:jazapico'),
-      ('5de7f7b2c7650f648dc8c1d4', '63ca543838c7e84db3e9655a', 'merge:jrramirez'),
-      ('60f7c7ac7590b24c0030af77', '68d9c7e1d43ba7878b67468d', 'merge:srmorito')
-    ) AS m(loser_uid, canonical_uid, label)
-  )
-  LOOP
-    FOR ref IN
-      SELECT table_schema, table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND data_type = 'text'
-        AND (column_name ~ '(_by|_uid|_account|_id)$'
-             OR column_name IN ('account','user_id','owner_id','actor_id','actor','creator_account'))
-        AND table_name NOT IN ('accounts','accounts_archive')
-    LOOP
-      EXECUTE format(
-        'UPDATE %I.%I SET %I = $1 WHERE %I = $2',
-        ref.table_schema, ref.table_name, ref.column_name, ref.column_name
-      ) USING merge_row.canonical_uid, merge_row.loser_uid;
-      GET DIAGNOSTICS updated = ROW_COUNT;
-      IF updated > 0 THEN
-        RAISE NOTICE 'merge-remap %: %.% -> % rows',
-          merge_row.label, ref.table_name, ref.column_name, updated;
-      END IF;
-    END LOOP;
-
-    INSERT INTO accounts_archive
-      SELECT a.*, now(), 'dup:merged-into:' || merge_row.canonical_uid
-      FROM accounts a
-      WHERE a.uid = merge_row.loser_uid
-      ON CONFLICT (uid) DO NOTHING;
-
-    DELETE FROM accounts WHERE uid = merge_row.loser_uid;
-    IF FOUND THEN
-      RAISE NOTICE 'merged: % (uid %) -> canonical %',
-        merge_row.label, merge_row.loser_uid, merge_row.canonical_uid;
-    END IF;
-  END LOOP;
-END $$;
+\echo 'losers archived and deleted from accounts'
 
 -- ----------------------------------------------------------------------------
 -- 3. Post-check: no case-insensitive email dupes should remain
@@ -196,8 +133,9 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
--- 4. Unique index rebuild — commented DDL for MediCard to review + run
---    after committing this script (or let migration 0054 create it fresh).
+-- 4. Unique index rebuild — commented DDL for MediCard to run separately.
+--    Note: CREATE UNIQUE INDEX CONCURRENTLY cannot run inside a transaction
+--    block, so it stays out of this script.
 --
 --    DROP INDEX IF EXISTS accounts_email_lower_unique;
 --    CREATE UNIQUE INDEX CONCURRENTLY accounts_email_lower_unique

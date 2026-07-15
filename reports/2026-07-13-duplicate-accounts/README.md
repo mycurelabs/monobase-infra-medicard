@@ -65,17 +65,21 @@ The **canonical uid gets `STAY`**. The other uid gets:
 - **`ARCHIVE`** for only-one-active and both-dormant losers — moved to `accounts_archive`, refs (if any) first remapped to the canonical uid.
 - **`MERGE-INTO-<canonical-uid>`** for both-active losers — refs remapped to the canonical uid, then loser row moved to `accounts_archive`.
 
-Under the hood, the script treats ARCHIVE and MERGE identically: dynamically discover all text-typed uid-ref columns via `information_schema.columns`, rewrite `loser_uid → canonical_uid`, then archive the loser. The CSV distinction is semantic — MediCard sees at a glance whether the loser was a ghost (no data to preserve) or an active user (data likely needs consolidation).
+Under the hood, the script treats ARCHIVE and MERGE identically: the loser row is moved to `accounts_archive` and deleted from `accounts`. The CSV distinction is semantic — it tells MediCard whether the loser was a ghost (no data to preserve) or an active user (data likely needs consolidation via a separate follow-up on your side).
 
-## Uncertainty — MediCard should scan for this
+## What the script does NOT do — ref consolidation is a separate follow-up
 
-The MERGE / archive-remap step discovers uid-ref columns dynamically at runtime using a heuristic on column names:
-- ends with `_by`, `_uid`, `_account`, `_id`
-- OR is one of `account`, `user_id`, `owner_id`, `actor_id`, `actor`, `creator_account`
+The script only touches the `accounts` table. It does NOT rewrite the ~100 uid-ref columns across the 141 other tables (`created_by`, `updated_by`, `account`, `user_id`, `owner_id`, `actor_id`, etc.) that may point at the archived uids. Two reasons:
 
-That covers the columns we spotted while investigating (roughly 100+ candidates across 141 tables), but the exhaustiveness depends on the regex being right. Any table with a uid-ref column that doesn't match those patterns will not have its refs remapped, and the archived row will effectively become an orphan reference.
+1. **Migration 0054 only inspects `accounts`** — removing the 18 duplicate rows is sufficient to make the invalid `accounts_email_lower_unique` index rebuild successfully. That's the immediate goal.
+2. **A dynamic ref-remap sweep is prohibitively slow against this schema** — the largest ref-bearing tables (`activity_logs` = 84M rows, `billing_items` = 6.2M, `billing_invoices` = 2.9M) have no supporting indexes on their uid-ref columns; blind `UPDATE ... WHERE created_by = X` becomes a full sequential scan per (column, loser) pair.
 
-**During dry-run, read the `RAISE NOTICE` output line by line.** Each line names a `<table>.<column>` that would be updated. If a table you know references accounts doesn't appear in the notices, the regex missed a column — extend it before committing.
+**What that means for MediCard:**
+- After running this script, any table that referenced an archived uid keeps the same uid value — that value just no longer resolves to a row in `accounts` (it does resolve in `accounts_archive`).
+- For **audit-log tables** (`activity_logs`): keeping the historical uid unchanged is arguably correct — the event happened as that uid, rewriting the actor would be history revisionism.
+- For **billing / booking / consent tables**: consolidating refs from archived uid to the STAY uid is a real data-integrity decision on your side, especially for the 5 MERGE pairs where both uids had real activity. This is out of scope for our script.
+
+If you want ref consolidation, the shape is `UPDATE <tbl> SET <col> = <stay_uid> WHERE <col> = <archived_uid>` per (table, column, archived_uid) — but each such statement needs an index on the column to be efficient. Add the indexes first (`CREATE INDEX CONCURRENTLY`), then batch the updates.
 
 ## Mongo re-import caveat
 
