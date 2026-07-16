@@ -115,3 +115,84 @@ Node Pool
   {{- .Values.global.nodePool -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Shared DB + encryption env, used by both the dashboard Deployment and the
+migration CronJob so the secret wiring stays in one place.
+NOTE: PG_ENCRYPTION_KEY is intentionally NOT injected — the migrator never
+reads it (AUDIT CRYPTO-1); injecting it falsely implied PG PII is encrypted.
+*/}}
+{{- define "hapihub-migrator.dbEnv" -}}
+- name: MONGO_SOURCE_URI
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: mongo-source-uri
+{{- if .Values.postgresql.uriSecret }}
+- name: PG_TARGET_URI
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.uriSecret.name }}
+      key: {{ .Values.postgresql.uriSecret.key }}
+{{- else }}
+- name: POSTGRESQL_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.existingSecret }}
+      key: {{ .Values.postgresql.secretKey }}
+- name: PG_TARGET_URI
+  value: "postgresql://{{ .Values.postgresql.username }}:$(POSTGRESQL_PASSWORD)@{{ include "hapihub-migrator.postgresql.host" . }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}"
+{{- end }}
+- name: ENC_PERSONAL_DETAILS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: enc-personal-details
+      optional: true
+- name: ENC_MEDICAL_RECORDS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: enc-medical-records
+      optional: true
+- name: ENC_BILLING_INVOICES
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: enc-billing-invoices
+      optional: true
+- name: ENC_BILLING_ITEMS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: enc-billing-items
+      optional: true
+- name: ENC_BILLING_PAYMENTS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.migration.existingSecret }}
+      key: enc-billing-payments
+      optional: true
+{{- end }}
+
+{{/*
+Shared CDC env (only meaningful for cdc mode; harmless elsewhere).
+*/}}
+{{- define "hapihub-migrator.cdcEnv" -}}
+{{- if .Values.cdc.enabled }}
+{{- with .Values.cdc }}
+{{- if .changelogCollectionPrefix }}
+- name: CDC_CHANGELOG_COLLECTION_PREFIX
+  value: {{ .changelogCollectionPrefix | quote }}
+{{- end }}
+{{- if .replayBatchSize }}
+- name: CDC_REPLAY_BATCH_SIZE
+  value: {{ .replayBatchSize | quote }}
+{{- end }}
+{{- if .replayIntervalMs }}
+- name: CDC_REPLAY_INTERVAL_MS
+  value: {{ .replayIntervalMs | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

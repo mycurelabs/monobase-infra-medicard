@@ -1,16 +1,22 @@
-{{- if .Values.enabled }}
+{{- if and .Values.enabled .Values.dashboard.enabled }}
+# Long-lived monitoring dashboard (MODE=dashboard). Read-only: serves the SSR
+# dashboard + status/verify/audit views from the PG metadata tables. Does NOT
+# run migrations and does NOT connect to or write to the Mongo source. The
+# actual migration runs as the suspended CronJob (see cronjob.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "hapihub-migrator.fullname" . }}
+  name: {{ include "hapihub-migrator.fullname" . }}-dashboard
   namespace: {{ include "hapihub-migrator.namespace" . }}
   labels:
     {{- include "hapihub-migrator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.dashboard.replicaCount | default 1 }}
   selector:
     matchLabels:
       {{- include "hapihub-migrator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -19,6 +25,7 @@ spec:
       {{- end }}
       labels:
         {{- include "hapihub-migrator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dashboard
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -29,7 +36,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-      - name: {{ .Chart.Name }}
+      - name: dashboard
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -55,7 +62,7 @@ spec:
           periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
         {{- end }}
         resources:
-          {{- toYaml .Values.resources | nindent 12 }}
+          {{- toYaml (.Values.dashboard.resources | default .Values.resources) | nindent 12 }}
         env:
         - name: NODE_ENV
           value: "production"
@@ -64,99 +71,10 @@ spec:
         - name: HTTP_PORT
           value: {{ .Values.service.targetPort | quote }}
         - name: MODE
-          value: {{ .Values.migration.mode | quote }}
-        - name: BATCH_SIZE
-          value: {{ .Values.migration.batchSize | default "1000" | quote }}
-        - name: COLLECTION_CONCURRENCY
-          value: {{ .Values.migration.collectionConcurrency | default "4" | quote }}
+          value: "dashboard"
         - name: LOG_LEVEL
           value: {{ .Values.migration.logLevel | default "info" | quote }}
-        - name: MAX_ERROR_RATE
-          value: {{ .Values.migration.maxErrorRate | default "0.01" | quote }}
-        - name: RESUME_MIGRATION
-          value: "true"
-        - name: EXIT_ON_BULK_END
-          value: {{ .Values.migration.exitOnBulkEnd | default "false" | quote }}
-        {{- if .Values.migration.migrationTimestamp }}
-        - name: MIGRATION_TIMESTAMP
-          value: {{ .Values.migration.migrationTimestamp | quote }}
-        {{- end }}
-        {{- if .Values.migration.timestampStrategy }}
-        - name: TIMESTAMP_STRATEGY
-          value: {{ .Values.migration.timestampStrategy | quote }}
-        {{- end }}
-        - name: MONGO_SOURCE_URI
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: mongo-source-uri
-        {{- if .Values.postgresql.uriSecret }}
-        - name: PG_TARGET_URI
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.postgresql.uriSecret.name }}
-              key: {{ .Values.postgresql.uriSecret.key }}
-        {{- else }}
-        - name: POSTGRESQL_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.postgresql.existingSecret }}
-              key: {{ .Values.postgresql.secretKey }}
-        - name: PG_TARGET_URI
-          value: "postgresql://{{ .Values.postgresql.username }}:$(POSTGRESQL_PASSWORD)@{{ include "hapihub-migrator.postgresql.host" . }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}"
-        {{- end }}
-        - name: ENC_PERSONAL_DETAILS
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: enc-personal-details
-              optional: true
-        - name: ENC_MEDICAL_RECORDS
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: enc-medical-records
-              optional: true
-        - name: ENC_BILLING_INVOICES
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: enc-billing-invoices
-              optional: true
-        - name: PG_ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: pg-encryption-key
-              optional: true
-        - name: ENC_BILLING_ITEMS
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: enc-billing-items
-              optional: true
-        - name: ENC_BILLING_PAYMENTS
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.migration.existingSecret }}
-              key: enc-billing-payments
-              optional: true
-        {{- if .Values.cdc.enabled }}
-        {{- with .Values.cdc }}
-        {{- if .changelogCollectionPrefix }}
-        - name: CDC_CHANGELOG_COLLECTION_PREFIX
-          value: {{ .changelogCollectionPrefix | quote }}
-        {{- end }}
-        {{- if .replayBatchSize }}
-        - name: CDC_REPLAY_BATCH_SIZE
-          value: {{ .replayBatchSize | quote }}
-        {{- end }}
-        {{- if .replayIntervalMs }}
-        - name: CDC_REPLAY_INTERVAL_MS
-          value: {{ .replayIntervalMs | quote }}
-        {{- end }}
-        {{- end }}
-        {{- end }}
+        {{- include "hapihub-migrator.dbEnv" . | nindent 8 }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp

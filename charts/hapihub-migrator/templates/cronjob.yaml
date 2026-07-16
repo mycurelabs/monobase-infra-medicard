@@ -1,0 +1,120 @@
+{{- if and .Values.enabled .Values.migrationJob.enabled }}
+# Migration workload (MODE=bulk|verify|cdc). Shipped as a SUSPENDED CronJob so
+# ArgoCD manages it declaratively but it never auto-fires. Trigger a run with:
+#   kubectl -n {{ include "hapihub-migrator.namespace" . }} create job \
+#     --from=cronjob/{{ include "hapihub-migrator.fullname" . }} \
+#     {{ include "hapihub-migrator.fullname" . }}-$(date +%s)
+# The migrator runs to completion and exits (0 = success, nonzero = a collection
+# failed / verify failed) — no EXIT_ON_BULK_END flag, no success-restart loop.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "hapihub-migrator.fullname" . }}
+  namespace: {{ include "hapihub-migrator.namespace" . }}
+  labels:
+    {{- include "hapihub-migrator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+spec:
+  # Never scheduled automatically — operators trigger runs via `create job --from`.
+  schedule: {{ .Values.migrationJob.schedule | default "0 0 31 2 *" | quote }}
+  suspend: {{ .Values.migrationJob.suspend | default true }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.migrationJob.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.migrationJob.failedJobsHistoryLimit | default 3 }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.migrationJob.backoffLimit | default 0 }}
+      {{- if .Values.migrationJob.activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "hapihub-migrator.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: migration
+        spec:
+          restartPolicy: Never
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "hapihub-migrator.serviceAccountName" . }}
+          enableServiceLinks: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+          - name: {{ .Chart.Name }}
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            resources:
+              {{- toYaml (.Values.migrationJob.resources | default .Values.resources) | nindent 14 }}
+            env:
+            - name: NODE_ENV
+              value: "production"
+            - name: HOME
+              value: "/tmp"
+            - name: MODE
+              value: {{ .Values.migration.mode | quote }}
+            - name: BATCH_SIZE
+              value: {{ .Values.migration.batchSize | default "1000" | quote }}
+            - name: COLLECTION_CONCURRENCY
+              value: {{ .Values.migration.collectionConcurrency | default "4" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.migration.logLevel | default "info" | quote }}
+            - name: MAX_ERROR_RATE
+              value: {{ .Values.migration.maxErrorRate | default "0.01" | quote }}
+            - name: RESUME_MIGRATION
+              value: {{ .Values.migration.resume | default "true" | quote }}
+            {{- if .Values.migration.runId }}
+            - name: RUN_ID
+              value: {{ .Values.migration.runId | quote }}
+            {{- end }}
+            {{- if .Values.migration.startCollectorInBulk }}
+            - name: START_COLLECTOR_IN_BULK
+              value: "true"
+            {{- end }}
+            {{- if .Values.migration.bulkCutoffDate }}
+            - name: BULK_CUTOFF_DATE
+              value: {{ .Values.migration.bulkCutoffDate | quote }}
+            {{- end }}
+            {{- if .Values.migration.collections }}
+            - name: COLLECTIONS
+              value: {{ .Values.migration.collections | quote }}
+            {{- end }}
+            {{- include "hapihub-migrator.dbEnv" . | nindent 12 }}
+            {{- include "hapihub-migrator.cdcEnv" . | nindent 12 }}
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          volumes:
+          - name: tmp
+            emptyDir: {}
+          {{- $nodePool := include "hapihub-migrator.nodePool" . -}}
+          {{- if or $nodePool .Values.nodeSelector }}
+          nodeSelector:
+            {{- if $nodePool }}
+            node-pool: {{ $nodePool }}
+            {{- end }}
+            {{- with .Values.nodeSelector }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or $nodePool .Values.tolerations }}
+          tolerations:
+            {{- if $nodePool }}
+            - key: "node-pool"
+              operator: "Equal"
+              value: {{ $nodePool | quote }}
+              effect: "NoSchedule"
+            {{- end }}
+            {{- with .Values.tolerations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+{{- end }}

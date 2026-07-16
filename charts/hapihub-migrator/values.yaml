@@ -92,13 +92,38 @@ externalSecrets:
   refreshInterval: 1h
   secrets: []
 
-# Migration configuration
+# Dashboard: long-lived read-only monitoring UI (MODE=dashboard). Serves the
+# SSR dashboard + status/verify/audit from PG. Never touches the Mongo source.
+dashboard:
+  enabled: true
+  replicaCount: 1
+  # resources: {}   # falls back to top-level .resources if unset
+
+# Migration workload: a SUSPENDED CronJob (see cronjob.yaml). ArgoCD manages it
+# but it never auto-fires; operators trigger a run via `kubectl create job --from`.
+migrationJob:
+  enabled: true
+  suspend: true
+  schedule: "0 0 31 2 *"   # Feb 31 = never; the CronJob exists only as a template
+  backoffLimit: 0          # a failed migration must not silently retry
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # activeDeadlineSeconds: 86400
+  # resources: {}          # falls back to top-level .resources if unset
+
+# Migration configuration (consumed by the CronJob's pod template)
 migration:
   mode: "bulk"
   batchSize: "1000"
   collectionConcurrency: "4"
   logLevel: "info"
   maxErrorRate: "0.01"
+  resume: "true"           # RESUME_MIGRATION — resume the latest in-progress run
+  # runId: ""              # pin RUN_ID for a deterministic converging run
+  # startCollectorInBulk: false  # only true if a CDC deployment will follow
+  # bulkCutoffDate: ""     # ISO8601; pin for determinism across restarts
+  # collections: ""        # comma-separated filter
   existingSecret: "hapihub-migration-secrets"
 
 # CDC (Change Data Capture) configuration
