@@ -529,7 +529,10 @@ hapihubMigrator:
     repository: ghcr.io/mycurelabs/hapihub-migrator
     # Pinned to a released, audited tag (AUDIT B1: deployed tag must match a
     # reviewed tree). Bump only via the migrator release process.
-    tag: "3.11.0"
+    # 3.11.1 == identical binary to 3.11.0 (digest sha256:4de3620…), re-tagged
+    # because a pre-existing stale 3.11.0 was cached on-node and IfNotPresent
+    # would not re-pull the corrected image.
+    tag: "3.11.1"
     pullPolicy: IfNotPresent
 
   nodeSelector:
