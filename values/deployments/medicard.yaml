@@ -604,8 +604,10 @@ hapihubMigrator:
         remoteKey: medicard-prod-mongo-source-uri
       - secretKey: pg-target-uri
         remoteKey: medicard-prod-pg-target-uri
-      - secretKey: pg-encryption-key
-        remoteKey: medicard-prod-pg-encryption-key
+      # NOTE: pg-encryption-key intentionally removed — the migrator never reads
+      # it (AUDIT CRYPTO-1). Injecting it falsely implied PG PII was encrypted
+      # at rest. Decrypted PII is written to PG as PLAINTEXT; see the migrator
+      # README "Encryption" section. Re-encryption is a separate security project.
       - secretKey: enc-personal-details
         remoteKey: medicard-prod-enc-personal-details
       - secretKey: enc-medical-records
