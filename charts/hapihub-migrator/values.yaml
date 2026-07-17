@@ -126,6 +126,19 @@ migration:
   # collections: ""        # comma-separated filter
   existingSecret: "hapihub-migration-secrets"
 
+# GridFS → S3 storage migration. Off by default; when enabled the migration
+# CronJob downloads GridFS files and uploads them to the S3 target (endpoint),
+# then points the PG storage_files rows at the new keys.
+storage:
+  enabled: false
+  bucket: ""
+  endpoint: ""            # e.g. http://s3proxy:9000
+  region: "us-east-1"
+  directory: "files"
+  secretName: ""          # secret holding the S3 access key id + secret
+  accessKeyIdKey: "root-user"
+  secretAccessKeyKey: "root-password"
+
 # CDC (Change Data Capture) configuration
 cdc:
   enabled: false

@@ -534,7 +534,7 @@ hapihubMigrator:
     # 3.11.0/3.11.1 push was built with bun 1.3.11 and produced a broken binary
     # (fell through to the bun CLI); 3.11.0/1 have since been overwritten with
     # the correct image, and 3.11.2 is a fresh tag so IfNotPresent nodes pull it.
-    tag: "3.11.3"
+    tag: "3.11.4"
     pullPolicy: IfNotPresent
 
   nodeSelector:
@@ -588,6 +588,22 @@ hapihubMigrator:
     # No _cd start filter — migrate the full history. Source is the MongoDB
     # Atlas cluster mycure-stg-sh (real BSON ObjectIds/dates); the run relies on
     # the _cd<=cutoff window + _sl-derived updated_at guard, not a start-date.
+
+  # ── GridFS → S3 storage migration ──────────────────────────────────────
+  # The source holds ~171k files in GridFS (files.chunks). Without this the
+  # bulk run copies only storage.files METADATA and leaves the file bytes
+  # behind — attachments/documents would 404 in the new stack. Target is the
+  # in-cluster s3proxy (S3 → Azure Blob), same bucket hapihub reads from, so
+  # hapihub resolves the migrated storage_files keys.
+  storage:
+    enabled: true
+    bucket: "blobmpseapmycurex01"
+    endpoint: "http://s3proxy:9000"
+    region: "us-east-1"
+    directory: "files"
+    secretName: "s3proxy"
+    accessKeyIdKey: "root-user"
+    secretAccessKeyKey: "root-password"
 
   postgresql:
     uriSecret:

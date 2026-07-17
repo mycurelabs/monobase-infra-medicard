@@ -196,3 +196,31 @@ Shared CDC env (only meaningful for cdc mode; harmless elsewhere).
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+GridFS → S3 storage-migration env. Only rendered when storage.enabled; the
+migrator's GridFS→S3 path activates when STORAGE_BUCKET is set. Access key/secret
+come from the storage secret (e.g. the s3proxy Secret's root-user/root-password).
+*/}}
+{{- define "hapihub-migrator.storageEnv" -}}
+{{- if .Values.storage.enabled }}
+- name: STORAGE_BUCKET
+  value: {{ .Values.storage.bucket | quote }}
+- name: STORAGE_S3_ENDPOINT
+  value: {{ .Values.storage.endpoint | quote }}
+- name: STORAGE_S3_REGION
+  value: {{ .Values.storage.region | default "us-east-1" | quote }}
+- name: STORAGE_DIRECTORY
+  value: {{ .Values.storage.directory | default "files" | quote }}
+- name: STORAGE_S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.storage.secretName }}
+      key: {{ .Values.storage.accessKeyIdKey | default "root-user" }}
+- name: STORAGE_S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.storage.secretName }}
+      key: {{ .Values.storage.secretAccessKeyKey | default "root-password" }}
+{{- end }}
+{{- end }}

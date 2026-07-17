@@ -60,4 +60,14 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+
+    {{- if .Values.storage.enabled }}
+    # GridFS → S3 storage migration: reach the in-cluster S3 endpoint
+    # (e.g. s3proxy). namespaceSelector:{} keeps it simple across ns layouts.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.storage.endpointPort | default 9000 }}
+    {{- end }}
 {{- end }}
