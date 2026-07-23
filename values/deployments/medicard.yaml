@@ -540,7 +540,7 @@ hapihubMigrator:
     # 3.12.1 = near-exact resume gate for base tables + FULL re-scan on re-open +
     # strict MAX_ERROR_RATE default (mono#2599). Heals real incompleteness that the
     # 0.90 gate tolerated (medical-records 95%, personal-details 98%).
-    tag: "3.12.2"
+    tag: "3.12.4"
     pullPolicy: IfNotPresent
 
   nodeSelector:
