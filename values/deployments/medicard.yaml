@@ -47,7 +47,8 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    tag: "11.20.47"
+    # .63 fixes the .62 mid-response abort (nginx-edge 502 storm); NEVER deploy 11.20.62 or 11.20.44
+    tag: "11.20.63"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
@@ -244,7 +245,7 @@ cadence:
 
   image:
     repository: ghcr.io/mycurelabs/cadence
-    tag: "0.7.10"
+    tag: "0.9.23"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
