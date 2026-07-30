@@ -47,8 +47,9 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    # .63 fixes the .62 mid-response abort (nginx-edge 502 storm); NEVER deploy 11.20.62 or 11.20.44
-    tag: "11.20.63"
+    # Matches mycure production (upgrade-only sync).
+    # NEVER deploy 11.20.62 (mid-response abort, nginx-edge 502 storm) or 11.20.44 (stale binary)
+    tag: "11.20.74"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
@@ -181,7 +182,7 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.25.104"
+    tag: "10.25.107"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas + preferred hostname anti-affinity so the two land on
