@@ -47,9 +47,13 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    # Matches mycure production (upgrade-only sync).
+    # Normally tracks mycure production (upgrade-only sync); mycure prod is 11.20.81.
+    # DELIBERATE LEAD: 11.20.87 carries MediCard-specific perf indexes for the
+    # Daily Census + Lab/Imaging worklist 504s (mono #2956, issue #2774) that no
+    # other env has yet — MediCard leads pending promotion of 87 through
+    # mycure preprod/prod. Re-converge to mycure prod once it reaches >= 11.20.87.
     # NEVER deploy 11.20.62 (mid-response abort, nginx-edge 502 storm) or 11.20.44 (stale binary)
-    tag: "11.20.74"
+    tag: "11.20.87"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
