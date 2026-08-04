@@ -36,6 +36,7 @@ podSecurityContext:
     type: RuntimeDefault
 
 securityContext:
+  runAsNonRoot: true  # Kyverno require-run-as-non-root checks the container path, not just the pod
   allowPrivilegeEscalation: false
   capabilities:
     drop:
