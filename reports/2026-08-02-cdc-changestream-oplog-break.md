@@ -116,10 +116,23 @@ Baseline captured before any change — SOURCE (`mycure-stg-sh`) vs PG target (e
 | organizations → organizations | 23,498 | 23,393 | 105 |
 
 Steps executed:
-1. **CDC stopped** — `kubectl -n medicard scale deploy hapihub-migrator-cdc --replicas=0` (halts the useless crashloop; was 780 restarts).
-2. **Reset safety confirmed** — `_migration_changelog` had 0 buffered rows; `_migration_changelog_meta` held the dead collector token (last progress 2026-07-30 01:21 UTC, `last_seq=11`). Token reset deferred to just before CDC restart.
-3. **Bulk heal launched** — Job `hapihub-migrator-heal-20260803`, cloned from CronJob `hapihub-migrator` with `CONFLICT_ACTION=nothing` (backfill: insert missing rows only, no rewrite/history bloak) + `SKIP_SCHEMA_INIT=true`. `MODE=bulk`, `RESUME_MIGRATION=true`, `BATCH_SIZE=500`, `COLLECTION_CONCURRENCY=1`. Running healthy (source+PG connected; GridFS→S3 idempotent-skipping; collections progressing). **Chosen over `CONFLICT_ACTION=update`** to avoid ~40M row rewrites + ~40M audit-history inserts + sustained prod-PG load; trade-off = edits to *already-migrated* rows during the outage window are not re-pulled (CDC covers forward; a full `update` reconcile can follow if needed).
-4. **Pending — on bulk completion:** delete `_migration_changelog_meta` collector row (reset dead token) → `kubectl -n medicard scale deploy hapihub-migrator-cdc --replicas=1` (opens change stream `resumeFrom: now`). Then re-check counts vs baseline.
+1. **CDC stopped** — `kubectl -n medicard scale deploy hapihub-migrator-cdc --replicas=0` (halts the crashloop; was 780 restarts).
+2. **Reset safety confirmed** — `_migration_changelog` had 0 buffered rows; `_migration_changelog_meta` held the dead collector token (last progress 2026-07-30 01:21 UTC, `last_seq=11`).
+3. **Bulk heal** with `CONFLICT_ACTION=nothing` (backfill: insert-missing only, no rewrite/history bloat) + `SKIP_SCHEMA_INIT=true`, `RESUME_MIGRATION=true`, `BATCH_SIZE=500`, `COLLECTION_CONCURRENCY=1`. **Chosen over `CONFLICT_ACTION=update`** to avoid ~40M row rewrites + ~40M audit-history inserts + sustained prod-PG load; trade-off = edits to *already-migrated* rows during the outage window are not re-pulled.
+
+### Backfill / heal run timings (UTC)
+
+| Run (Job) | Scope | Start | End | Elapsed | Outcome |
+|---|---|---|---|---|---|
+| `hapihub-migrator-heal-20260803` | full (83 collections) | ~2026-08-03 00:15 | 2026-08-04 00:17:23 | ~24 h | **Failed** — source shard shutdown mid-read (`InterruptedAtShutdown`); **80/83 collections completed** before the failure |
+| `hapihub-migrator-heal-20260804` | full resume | 2026-08-04 00:27:40 | 2026-08-04 00:49:02 | ~21 min | Failed on `accounts` convergence gate (pre-fix; benign dup-email shortfall) |
+| `hapihub-migrator-heal-20260804b` | `activity-logs` (targeted) | 2026-08-04 00:54:36 | ~2026-08-04 01:35 (killed) | ~40 min | Stalled on the pre-read convergence count (100M, unindexed `_cd`); killed |
+| `hapihub-migrator-heal-20260804c` | `billing-invoice-agt` + `diagnostic-orders` | 2026-08-04 01:36:49 | 2026-08-04 01:40:41 | **3 min 52 s** | **Complete** — both re-verified (0 mismatched/missing) |
+| `hapihub-migrator-heal-activitylogs` | `activity-logs` (with count-bound fix) | 2026-08-04 03:07:58 | in progress | — | Reading (paginated); ~100.2M rows, hours-scale |
+
+Notable per-collection timings (run `…804c`, verify phase): `billing-invoice-agt` verify 1.8 s, `diagnostic-orders` verify 4.8 s. Start times before 2026-08-03 for run 1 are approximate (the Job was garbage-collected; derived from the ~24 h duration and the 00:17:23 Z failure). All other timestamps are exact (Job `status.startTime`/`completionTime` or the retry-watcher log).
+
+**Net result:** 82 of 83 collections migrated and verified; `activity-logs` (the 100M audit log) is being completed by the final run above. On completion: reset `_migration_changelog_meta` and (per the accepted snapshot model, [[2026-08-03-medicard-source-topology-snapshot-vs-live-cdc.md]]) leave CDC scaled to 0.
 
 ## Preventive actions (proposed)
 

@@ -6,9 +6,9 @@
 
 ---
 
-## Shard-node shutdown mid-migration → 3 collections' reads failed (2026-08-04 ~00:17Z)
+## Shard-node shutdown mid-migration → 3 collections' reads failed (2026-08-04 00:17:23 UTC)
 
-A bulk migration completed 80 of 83 collections, then a source shard node went down while reads were in flight.
+A bulk migration ran from **~2026-08-03 00:15 UTC** and had completed 80 of 83 collections when, **~24 h in at 2026-08-04 00:17:23 UTC**, a source shard node went down while reads were in flight.
 
 - **Verified — the migrator's per-collection error records:**
   - `activity-logs` → `Error on remote shard atlas-k97n6n-shard-01-01.q4trx.mongodb.net:27017 :: caused by :: interrupted at shutdown`
