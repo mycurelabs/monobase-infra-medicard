@@ -552,7 +552,11 @@ hapihubMigrator:
     # 3.12.7 = legacy org-type normalization on transform (cms/his/pharmacy →
     # facility/[clinic|hospital|pharmacy]) so bulk/CDC stop leaving branches as
     # type='cms' (hidden by isClinicalFacility) — mono#2793 / issue #2773.
-    tag: "3.12.7"
+    # 3.12.8 = non-blocking convergence allowance (CONVERGENCE_ALLOW_SHORTFALL) +
+    # untargeted ON CONFLICT DO NOTHING (skip secondary-unique dups as expected
+    # drops) + advisory-lock acquire retry + bounded convergence count w/ estimate
+    # fallback + reconcile anti-join OOM guard for >20M-row collections — mono#2935.
+    tag: "3.12.8"
     pullPolicy: IfNotPresent
 
   nodeSelector:
