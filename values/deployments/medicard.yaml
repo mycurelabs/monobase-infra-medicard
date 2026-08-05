@@ -186,7 +186,8 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.25.107"
+    # Upgrade to match mycure production (10.25.110).
+    tag: "10.25.110"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas + preferred hostname anti-affinity so the two land on
