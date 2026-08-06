@@ -77,40 +77,55 @@ ALTER TABLE accounts_archive
 \echo ''
 \echo '=== 2. Archive losers ==='
 
-WITH losers(uid, reason) AS (VALUES
-  -- 13 ARCHIVE (12 ghost + 1 both-dormant loser)
-  ('63ab8ea69ab43bbf043b1e9d', 'ghost:cebu.laboratory'),
-  ('691a5b5b83d6bfc2a520426a', 'ghost:janemsalvadormd'),
-  ('63b510af9e913c883a761026', 'both-dormant:jdumanat'),
-  ('60ebe7f1c9081d9a6a0f1175', 'ghost:jeesleyer'),
-  ('634f65d8e1954f9c41b67ad8', 'ghost:katrina_saliba'),
-  ('65a1da869cd5f0ab9c55cc13', 'ghost:kristynellebonifacio'),
-  ('67998d3923368a7bec0d88e3', 'ghost:mjcolong'),
-  ('67bec9358ffa72306879e933', 'ghost:nmenricoso'),
-  ('63ae8277dfcbb590380dfdcc', 'ghost:rdimanlig'),
-  ('5de7f8dfc7650f648dc8c22e', 'ghost:regisyfu17'),
-  ('62454741e134b34c03cdac4f', 'ghost:ritche_go'),
-  ('6957114b9d1edc4832a3cc77', 'ghost:rtan'),
-  ('5de7f924fd1696648383c135', 'ghost:tanmyro'),
-  -- 5 MERGE (both-active losers; reason encodes the STAY canonical uid)
-  ('5de7f7044a1e9664a169bdd0', 'merge:65263dd3476ce9229ce15c33'),  -- eembudo
-  ('639ac1bc7e95a230afe7f620', 'merge:63856a5579627c1bab4e1b48'),  -- ferlylapinig
-  ('66aadc9379b8c659f016a3ca', 'merge:66d7ae433a113b6af8213d44'),  -- jazapico
-  ('5de7f7b2c7650f648dc8c1d4', 'merge:63ca543838c7e84db3e9655a'),  -- jrramirez
-  ('60f7c7ac7590b24c0030af77', 'merge:68d9c7e1d43ba7878b67468d')   -- srmorito
-),
-inserted AS (
-  INSERT INTO accounts_archive
-    SELECT a.*, now(), l.reason
-    FROM accounts a JOIN losers l USING (uid)
-    ON CONFLICT (uid) DO NOTHING
-    RETURNING uid
-)
-SELECT count(*) AS archived_count FROM inserted;
+DO $$
+DECLARE
+  loser record;
+  archived int := 0;
+  deleted int := 0;
+BEGIN
+  FOR loser IN (
+    SELECT * FROM (VALUES
+      -- 13 ARCHIVE (12 ghost + 1 both-dormant loser)
+      ('63ab8ea69ab43bbf043b1e9d', 'ghost:cebu.laboratory'),
+      ('691a5b5b83d6bfc2a520426a', 'ghost:janemsalvadormd'),
+      ('63b510af9e913c883a761026', 'both-dormant:jdumanat'),
+      ('60ebe7f1c9081d9a6a0f1175', 'ghost:jeesleyer'),
+      ('634f65d8e1954f9c41b67ad8', 'ghost:katrina_saliba'),
+      ('65a1da869cd5f0ab9c55cc13', 'ghost:kristynellebonifacio'),
+      ('67998d3923368a7bec0d88e3', 'ghost:mjcolong'),
+      ('67bec9358ffa72306879e933', 'ghost:nmenricoso'),
+      ('63ae8277dfcbb590380dfdcc', 'ghost:rdimanlig'),
+      ('5de7f8dfc7650f648dc8c22e', 'ghost:regisyfu17'),
+      ('62454741e134b34c03cdac4f', 'ghost:ritche_go'),
+      ('6957114b9d1edc4832a3cc77', 'ghost:rtan'),
+      ('5de7f924fd1696648383c135', 'ghost:tanmyro'),
+      -- 5 MERGE (both-active losers; reason encodes the STAY canonical uid)
+      ('5de7f7044a1e9664a169bdd0', 'merge:65263dd3476ce9229ce15c33'),  -- eembudo
+      ('639ac1bc7e95a230afe7f620', 'merge:63856a5579627c1bab4e1b48'),  -- ferlylapinig
+      ('66aadc9379b8c659f016a3ca', 'merge:66d7ae433a113b6af8213d44'),  -- jazapico
+      ('5de7f7b2c7650f648dc8c1d4', 'merge:63ca543838c7e84db3e9655a'),  -- jrramirez
+      ('60f7c7ac7590b24c0030af77', 'merge:68d9c7e1d43ba7878b67468d')   -- srmorito
+    ) AS l(uid, reason)
+  )
+  LOOP
+    WITH ins AS (
+      INSERT INTO accounts_archive
+        SELECT a.*, now(), loser.reason
+        FROM accounts a WHERE a.uid = loser.uid
+        ON CONFLICT (uid) DO NOTHING
+        RETURNING 1
+    )
+    SELECT count(*) INTO STRICT archived FROM ins;
 
-DELETE FROM accounts WHERE uid IN (SELECT uid FROM losers);
+    WITH del AS (
+      DELETE FROM accounts WHERE uid = loser.uid RETURNING 1
+    )
+    SELECT count(*) INTO STRICT deleted FROM del;
 
-\echo 'losers archived and deleted from accounts'
+    RAISE NOTICE 'loser % (%): archived=% deleted=%',
+      loser.uid, loser.reason, archived, deleted;
+  END LOOP;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- 3. Post-check: no case-insensitive email dupes should remain
