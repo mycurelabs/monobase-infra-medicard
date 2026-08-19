@@ -100,6 +100,10 @@ only reachable in-VNet, hence the bastion). GitOps via ArgoCD app-of-apps tracki
 `main`. hapihub is **PostgreSQL-only** (external Azure PG); object storage is
 s3proxy translating S3→Azure Blob. Mongo appears only as the migrator's source.
 
+> Reflects `main` desired-state; **not live-probed** (prod API is private-link,
+> reachable only from the bastion during its ~1h/day window). ArgoCD self-heals
+> to `main`, so running ≈ desired, but treat as unverified until probed.
+
 ```mermaid
 flowchart TB
     clients([Clients / browsers])
@@ -156,9 +160,12 @@ flowchart TB
 ## 4. K8s — Staging
 
 Same AKS/GitOps model, `staging` branch → ns `medicard-staging`, domain
-`*-mycurex-dev`. Differs from prod: databases + storage run **in-cluster**
-(FerretDB/DocumentDB for Mongo, MinIO for S3) and syncd runs alongside — only
-Azure PG stays external. Older image lines (hapihub 11.2.9, mycureapp 10.4.2).
+`*-mycurex-dev`. **Live-probed 2026-08-19** — the running set is leaner than the
+prod stack: no in-cluster Mongo (no FerretDB) and no in-cluster PG. hapihub
+(11.2.9) targets **external** Azure PG (`DATABASE_URI`) **and external** Mongo /
+Atlas (`MONGO_URI`); the only in-cluster data services are **MinIO** (S3 storage)
+and **Mailpit** (email testing). Migrator (3.7.7) is scaled to 0 (on-demand). No
+syncd, no valkey, no cadence deployed.
 
 ```mermaid
 flowchart TB
@@ -167,41 +174,40 @@ flowchart TB
     repo([GitHub<br/>...-medicard.git @ staging])
     kv([Azure Key Vault])
 
-    subgraph AKS["AKS · ns: medicard-staging"]
+    subgraph AKS["AKS aks-mpi-sea-a-mycurex01 · ns: medicard-staging"]
         argo[ArgoCD app-of-apps]
         eso[External Secrets Operator]
         envoy[Envoy Gateway<br/>shared-gateway]
 
         hapihub["hapihub 11.2.9<br/>:7500 · api-mycurex-dev"]
         mycure["mycureapp 10.4.2<br/>cms-mycurex-dev"]
-        syncd["syncd 5.130.24<br/>sync-mycurex-dev"]
-        minio["minio<br/>storage-mycurex-dev"]
-        mongodb["mongodb (FerretDB 2.7<br/>+ documentdb/PG backend)"]
-        valkey["valkey"]
-        migrator["hapihub-migrator 3.7.7"]
+        minio["minio :9000<br/>storage-mycurex-dev (in-cluster S3)"]
+        mailpit["mailpit<br/>email testing"]
+        migrator["hapihub-migrator 3.7.7<br/>(scaled to 0, on-demand)"]
     end
 
     pg([Azure PG Flexible<br/>external DATABASE_URI])
+    atlas([MongoDB Atlas<br/>external MONGO_URI])
 
     clients -->|HTTPS| edge
     edge -->|HTTP| envoy
     envoy --> hapihub
     envoy --> mycure
-    envoy --> syncd
     envoy --> minio
     mycure -->|API_URL| hapihub
 
-    hapihub -->|SQL| pg
-    hapihub -->|S3| minio
-    hapihub -->|cache| valkey
-    hapihub -->|mongo wire| mongodb
-    syncd --> mongodb
+    hapihub -->|"SQL (DATABASE_URI)"| pg
+    hapihub -->|"mongo (MONGO_URI)"| atlas
+    hapihub -->|"S3 :9000"| minio
+    hapihub -->|SMTP| mailpit
+    migrator -->|read| atlas
+    migrator -->|SQL write| pg
 
     eso -->|pull secrets| kv
     argo -->|reconcile| repo
 
     classDef bb fill:#f5f5f5,stroke:#999,stroke-dasharray:5 4,color:#333;
-    class clients,edge,repo,kv,pg bb;
+    class clients,edge,repo,kv,pg,atlas bb;
 ```
 
 ---
@@ -210,9 +216,9 @@ flowchart TB
 
 | Blackbox | Interface we use | Used by |
 |---|---|---|
-| MongoDB Atlas | `mongodb+srv://` conn string | legacy hapihub; k8s migrator (source) |
+| MongoDB Atlas | `mongodb+srv://` conn string | legacy hapihub; k8s staging hapihub (`MONGO_URI`); k8s migrator source (both envs) |
 | Azure PG Flexible Server | `postgres://…?sslmode=require` | k8s hapihub / migrator (both envs) |
-| Azure Blob | Azure Blob API (via s3proxy/MinIO) | k8s prod storage |
+| Azure Blob | Azure Blob API (via s3proxy) | k8s **prod** storage only (staging uses in-cluster MinIO) |
 | Azure Key Vault | ESO ClusterSecretStore (`azure-secretstore`) | k8s both envs |
 | Azure App Gateway + WAF | HTTPS in → HTTP to our edge | all client-facing traffic |
 | GHCR | image pulls | k8s workloads |
