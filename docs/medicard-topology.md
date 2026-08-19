@@ -18,7 +18,9 @@ Legend:
 
 Reached for ops via the `medicard.gateway` jump host (VPN). Real client traffic
 enters through Azure's App Gateway + WAF, which forwards straight to hapihub
-`:7500` (bypasses local nginx).
+`:7500` (bypasses local nginx). hapihub runs the **MediCard CPS integration
+plugin** (`apid-plugin-medicard-cps`), which submits claims/billing to MediCard's
+CPS API.
 
 ```mermaid
 flowchart TB
@@ -41,10 +43,12 @@ flowchart TB
     end
 
     atlas([MongoDB Atlas<br/>mycure.q4trx.mongodb.net<br/>db medicard-production])
+    cps([MediCard CPS API<br/>medicardapi02-app.medicardphils.com<br/>claims / billing submission])
 
     clients -->|HTTPS| appgw
     appgw -->|"HTTP :7500"| api
     api -->|mongodb+srv| atlas
+    api -->|"HTTPS claims (basic auth)"| cps
     festival -->|syncd :7801 sync| io
     cebu -->|LAN| festival
     io -->|sync| api
@@ -55,7 +59,7 @@ flowchart TB
     gw -.SSH.-> cebu
 
     classDef bb fill:#f5f5f5,stroke:#999,stroke-dasharray:5 4,color:#333;
-    class clients,appgw,atlas bb;
+    class clients,appgw,atlas,cps bb;
 ```
 
 ---
@@ -63,7 +67,8 @@ flowchart TB
 ## 2. Legacy — Staging
 
 Same jump-host access pattern; two dedicated staging VMs. DB backing follows the
-prod pattern — a MongoDB Atlas staging database.
+prod pattern — a MongoDB Atlas staging database — and hapihub runs the same
+MediCard CPS integration plugin against MediCard's CPS staging API.
 
 ```mermaid
 flowchart TB
@@ -79,16 +84,18 @@ flowchart TB
     end
 
     atlas([MongoDB Atlas — staging DB])
+    cps([MediCard CPS API — staging<br/>claims / billing submission])
 
     clients -->|HTTPS| stgweb
     clients -->|HTTPS| stgapi
     stgapi -->|mongodb+srv| atlas
+    stgapi -->|"HTTPS claims (basic auth)"| cps
 
     gw -.SSH.-> stgapi
     gw -.SSH.-> stgweb
 
     classDef bb fill:#f5f5f5,stroke:#999,stroke-dasharray:5 4,color:#333;
-    class clients,atlas bb;
+    class clients,atlas,cps bb;
 ```
 
 ---
@@ -210,6 +217,7 @@ flowchart TB
 
 | Blackbox | Interface we use | Used by |
 |---|---|---|
+| MediCard CPS API | HTTPS REST (basic auth) — claims/billing submission | legacy hapihub CPS plugin (prod + staging) |
 | MongoDB Atlas | `mongodb+srv://` conn string | legacy hapihub; k8s staging hapihub (`MONGO_URI`); k8s migrator source (both envs) |
 | Azure PG Flexible Server | `postgres://…?sslmode=require` | k8s hapihub / migrator (both envs) |
 | Azure Blob | Azure Blob API (via s3proxy) | k8s **prod** storage only (staging uses in-cluster MinIO) |
