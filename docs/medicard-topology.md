@@ -63,7 +63,7 @@ flowchart TB
 ## 2. Legacy — Staging
 
 Same jump-host access pattern; two dedicated staging VMs. DB backing follows the
-prod pattern — a MongoDB Atlas staging database (confirmed).
+prod pattern — a MongoDB Atlas staging database.
 
 ```mermaid
 flowchart TB
