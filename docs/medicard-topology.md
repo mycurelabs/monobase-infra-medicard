@@ -4,8 +4,8 @@ Scope: only MediCard-owned components. Everything we don't run — we reach it
 through its provided interface (API / connection string / S3 endpoint) — is drawn
 as a **blackbox** (`([ ... ])`, dashed). We don't model their internals.
 
-Sources: `values/deployments/medicard.yaml` (prod, `main`), same file on the
-`staging` branch, and the `medicard-infra-access` skill registry.
+Sources: `values/deployments/medicard.yaml` (prod, `main`) and the same file on
+the `staging` branch.
 
 Legend:
 - Solid box = we run/operate it.
