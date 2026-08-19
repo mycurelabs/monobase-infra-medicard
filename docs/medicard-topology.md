@@ -100,10 +100,6 @@ only reachable in-VNet, hence the bastion). GitOps via ArgoCD app-of-apps tracki
 `main`. hapihub is **PostgreSQL-only** (external Azure PG); object storage is
 s3proxy translating S3→Azure Blob. Mongo appears only as the migrator's source.
 
-> Reflects `main` desired-state; **not live-probed** (prod API is private-link,
-> reachable only from the bastion during its ~1h/day window). ArgoCD self-heals
-> to `main`, so running ≈ desired, but treat as unverified until probed.
-
 ```mermaid
 flowchart TB
     clients([Clients / browsers])
@@ -160,12 +156,10 @@ flowchart TB
 ## 4. K8s — Staging
 
 Same AKS/GitOps model, `staging` branch → ns `medicard-staging`, domain
-`*-mycurex-dev`. **Live-probed 2026-08-19** — the running set is leaner than the
-prod stack: no in-cluster Mongo (no FerretDB) and no in-cluster PG. hapihub
-(11.2.9) targets **external** Azure PG (`DATABASE_URI`) **and external** Mongo /
-Atlas (`MONGO_URI`); the only in-cluster data services are **MinIO** (S3 storage)
-and **Mailpit** (email testing). Migrator (3.7.7) is scaled to 0 (on-demand). No
-syncd, no valkey, no cadence deployed.
+`*-mycurex-dev`. hapihub (11.2.9) serves the API against external Azure PG
+(`DATABASE_URI`) and external Mongo / Atlas (`MONGO_URI`); mycureapp (10.4.2) is
+the CMS frontend. In-cluster data services are **MinIO** (S3 storage) and
+**Mailpit** (email testing), with hapihub-migrator (3.7.7) run on-demand.
 
 ```mermaid
 flowchart TB
@@ -183,7 +177,7 @@ flowchart TB
         mycure["mycureapp 10.4.2<br/>cms-mycurex-dev"]
         minio["minio :9000<br/>storage-mycurex-dev (in-cluster S3)"]
         mailpit["mailpit<br/>email testing"]
-        migrator["hapihub-migrator 3.7.7<br/>(scaled to 0, on-demand)"]
+        migrator["hapihub-migrator 3.7.7<br/>(on-demand)"]
     end
 
     pg([Azure PG Flexible<br/>external DATABASE_URI])
