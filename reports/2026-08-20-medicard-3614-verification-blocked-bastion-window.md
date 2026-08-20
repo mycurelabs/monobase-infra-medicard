@@ -33,10 +33,6 @@ So the change only takes effect after a **hapihub restart**. Verification must t
 
 Ready-to-run read-only SQL staged at `/tmp/verify-3614.sql`.
 
-### Known risk to check (do not assume "search fixed")
-
-Migrator `0073` builds trgm indexes on **raw** `name->>'firstName'` / `lastName`, but the deployed search filters `name->>'firstNameNormalized'` (lowercased). A trgm GIN on the raw column **cannot** serve a predicate on the normalized column, so **patient-name search (#2774 item 1) may still seq-scan even after the unblock** — this was flagged as an app-side follow-up on 2026-07-31 and has no corrective migration as of hapihub main. The worklist/census 504s (`0080`) *are* expected to be genuinely fixed. Step 4 of the staged SQL tests both columns to settle this.
-
 ---
 
 ## The blocker (verified, with proof)
@@ -74,6 +70,6 @@ TCP22_CLOSED_OR_TIMEOUT
 
 1. **Wait for the up-window (~23:00 UTC)** — or have MediCard start / widen the bastion schedule — then run `/tmp/verify-3614.sql` via the hapihub-pod python client (`kubectl -n medicard get pod -l app=hapihub`, read-only).
 2. **If extensions are still absent** (no restart happened since the allow-list change): rollout-restart the hapihub deployment to trigger the migrator, then re-verify. *(Pre-authorized for this specific condition.)*
-3. Post the confirmed results (extensions installed, indexes valid, EXPLAIN plans) to #3614, and — if the raw-vs-normalized trgm mismatch is confirmed — file the app-side index-column correction as a follow-up.
+3. Post the confirmed results (extensions installed, indexes valid, EXPLAIN plans) to #3614.
 
 **Bottom line:** MediCard's part (the 4-extension allow-list) is done and correct. It cannot be confirmed *effective* until (a) hapihub has restarted since the change and (b) we read the DB — and (b) is unreachable until the bastion's next up-window.
