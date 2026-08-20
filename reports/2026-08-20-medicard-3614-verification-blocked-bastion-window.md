@@ -1,8 +1,8 @@
-# #3614 Index-Enhancements Verification — Blocked by Prod Bastion Auto-Shutdown
+# #3614 Index-Enhancements Verification — Blocked: Prod Jump Host Is Currently Down
 
 **Issue:** [mycurelabs/monobase-mycure#3614](https://github.com/mycurelabs/monobase-mycure/issues/3614) (ffup of #2774)
 **Goal:** Verify that MediCard's `azure.extensions` allow-list change actually took effect on prod PG — i.e. the extensions are installed and the previously-stranded performance indexes got built.
-**Status:** **Verification blocked** — the sole access path to prod PG (the AKS bastion) is deallocated outside its daily up-window.
+**Status:** **Verification blocked** — the sole access path to prod PG (the AKS jump host `172.23.4.8`) is **currently down / unreachable** (verified below).
 **Date:** 2026-08-20
 
 ---
@@ -35,7 +35,7 @@ Ready-to-run read-only SQL staged at `/tmp/verify-3614.sql`.
 
 ---
 
-## The blocker (verified, with proof)
+## The blocker (verified, with proof) — the jump host is down right now
 
 Prod PG = Azure Flexible Server `mpiazeppgdb0003`, reachable **only** from inside the AKS VNet (Azure Private Link). The single documented path is:
 
@@ -43,9 +43,7 @@ Prod PG = Azure Flexible Server `mpiazeppgdb0003`, reachable **only** from insid
 laptop --(VPN)--> medicard.gateway --> mc.remote.prd.bastion (172.23.4.8) --> kubectl exec (ns medicard) --> PG
 ```
 
-`mc.remote.prd.bastion` is on an Azure start/stop schedule: **auto-start ~23:00 UTC, auto-shutdown 00:10 UTC → up only ~1h/day**. Outside that window the VM is deallocated.
-
-**Probe, 2026-08-20 02:04:55 UTC** (≈2h after shutdown, ≈21h before next start):
+**The problem: the jump host `172.23.4.8` is currently down / unreachable.** Probed **2026-08-20 02:04:55 UTC**:
 
 ```
 # Hop 1 — gateway (VPN): UP
@@ -53,23 +51,25 @@ $ ssh medicard.gateway 'hostname; date -u'
 medicard
 gw_utc=02:04:55
 
-# Hop 2 — bastion, from the gateway (same VNet): DOWN
+# Hop 2 — jump host, from the gateway (same VNet): DOWN
 $ ssh mc.remote.prd.bastion 'hostname'
 ssh: connect to host 172.23.4.8 port 22: Connection timed out   (exit 255)
 
-# TCP/22 + ICMP to the bastion, from the gateway:
+# TCP/22 + ICMP to the jump host, from the gateway:
 TCP22_CLOSED_OR_TIMEOUT
 2 packets transmitted, 0 received, 100% packet loss
 ```
 
-100% ICMP loss **from inside the network** + TCP/22 timeout = the VM is **deallocated (stopped)**, not merely an sshd/service issue. VPN and gateway are healthy. This matches the documented daily deallocation, not a crash. (See `reports/2026-08-02-medicard-prod-bastion-jumphost-outage.md`.)
+100% ICMP loss **from inside the same VNet** + TCP/22 timeout = the VM is powered off / unreachable, not merely an sshd/service issue. VPN and gateway are healthy, so the block is specifically this VM being down.
+
+> **Observation (not confirmed today):** this VM has previously been seen on an Azure start/stop schedule (up only ~1h/day, ≈23:00–00:10 UTC) — see `reports/2026-08-02-medicard-prod-bastion-jumphost-outage.md`. That *may* explain why it's down now, but today's evidence only establishes that it is down; whether it auto-recovers or needs a manual start is unconfirmed. Treat "bring it back up" as the action, not "wait for the window."
 
 ---
 
 ## Next steps
 
-1. **Wait for the up-window (~23:00 UTC)** — or have MediCard start / widen the bastion schedule — then run `/tmp/verify-3614.sql` via the hapihub-pod python client (`kubectl -n medicard get pod -l app=hapihub`, read-only).
+1. **Get the jump host `172.23.4.8` back online** (MediCard to start the VM / confirm it's up), then run `/tmp/verify-3614.sql` via the hapihub-pod python client (`kubectl -n medicard get pod -l app=hapihub`, read-only).
 2. **If extensions are still absent** (no restart happened since the allow-list change): rollout-restart the hapihub deployment to trigger the migrator, then re-verify. *(Pre-authorized for this specific condition.)*
 3. Post the confirmed results (extensions installed, indexes valid, EXPLAIN plans) to #3614.
 
-**Bottom line:** MediCard's part (the 4-extension allow-list) is done and correct. It cannot be confirmed *effective* until (a) hapihub has restarted since the change and (b) we read the DB — and (b) is unreachable until the bastion's next up-window.
+**Bottom line:** MediCard's part (the 4-extension allow-list) is done and correct. It cannot be confirmed *effective* until (a) hapihub has restarted since the change and (b) we read the DB — and (b) is blocked because the prod jump host is currently down.
