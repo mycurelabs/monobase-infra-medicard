@@ -557,7 +557,14 @@ hapihubMigrator:
     # untargeted ON CONFLICT DO NOTHING (skip secondary-unique dups as expected
     # drops) + advisory-lock acquire retry + bounded convergence count w/ estimate
     # fallback + reconcile anti-join OOM guard for >20M-row collections — mono#2935.
-    tag: "3.12.8"
+    # 3.12.9 = mono#4107 retrospective-review fixes (mono#4129): CDC rejects
+    # CONFLICT_ACTION=force/nothing at startup; delete latest-wins guard
+    # (stale delete can't remove a recreated row); dead-letter write failure
+    # holds the cursor instead of dropping events; reconcile COUNT-GATES the
+    # encrypted-id/oversized skips (no more missing:0 free pass); crypto errors
+    # redact key material; nested $$enc$$ decryption; NaN/Invalid-Date env
+    # values fail startup; optional DASHBOARD_TOKEN auth on the HTTP surface.
+    tag: "3.12.9"
     pullPolicy: IfNotPresent
 
   nodeSelector:
