@@ -82,3 +82,7 @@ node_modules/
 
 **/charts/*.tgz
 .playwright-mcp/
+
+# Local Claude config + worktrees (not shared)
+CLAUDE.local.md
+.claude/worktrees/
