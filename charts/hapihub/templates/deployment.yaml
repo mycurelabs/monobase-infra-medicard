@@ -42,6 +42,26 @@ spec:
         - name: http
           containerPort: {{ .Values.service.targetPort }}
           protocol: TCP
+        {{- if .Values.startupProbe.enabled }}
+        # Gates liveness/readiness until the app has finished booting. hapihub
+        # runs the concurrent index migrator inside app.setup(), awaited BEFORE
+        # .listen() — so /health stays down until every CREATE INDEX CONCURRENTLY
+        # completes. On a large version jump the catch-up can take many minutes
+        # (trgm GINs on the 28GB personal_details table); without this probe
+        # liveness would kill the pod at ~60s mid-build → CrashLoop, indexes
+        # never finish. failureThreshold × periodSeconds must exceed the worst
+        # catch-up time with margin.
+        startupProbe:
+          {{- if .Values.startupProbe.httpGet }}
+          httpGet:
+            path: {{ .Values.startupProbe.httpGet.path }}
+            port: {{ .Values.startupProbe.httpGet.port | default "http" }}
+          {{- end }}
+          initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+        {{- end }}
         {{- if .Values.livenessProbe.enabled }}
         livenessProbe:
           {{- if .Values.livenessProbe.httpGet }}

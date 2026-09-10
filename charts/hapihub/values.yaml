@@ -95,6 +95,20 @@ resources:
     cpu: "2"
     memory: 4Gi
 
+# Off by default; enable per-deployment when a slow boot-time migration
+# (concurrent index catch-up on a large version jump) can outlast the
+# liveness window. When enabled, k8s suspends liveness+readiness until it
+# passes, so the pod isn't killed mid-CREATE-INDEX-CONCURRENTLY.
+startupProbe:
+  enabled: false
+  httpGet:
+    path: /health
+    port: 7500
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
 livenessProbe:
   enabled: true
   httpGet:

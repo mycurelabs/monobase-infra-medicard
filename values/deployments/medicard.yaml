@@ -47,13 +47,16 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    # Normally tracks mycure production (upgrade-only sync); mycure prod is 11.20.81.
-    # DELIBERATE LEAD: 11.20.87 carries MediCard-specific perf indexes for the
-    # Daily Census + Lab/Imaging worklist 504s (mono #2956, issue #2774) that no
-    # other env has yet — MediCard leads pending promotion of 87 through
-    # mycure preprod/prod. Re-converge to mycure prod once it reaches >= 11.20.87.
+    # DELIBERATE LEAD ahead of mycure prod. 11.20.125 (rev 8f20519a) carries the
+    # #2774 patient-search fix (F4a: 5 pg_trgm GINs on personal_details repointed
+    # to the normalized query exprs) + the 0080 Daily Census / Lab / Imaging
+    # worklist 504 indexes (mono #2956). The 5 trgm GINs were PRE-BUILT out-of-band
+    # on prod before this bump, so the concurrent-index migrator no-ops them on boot
+    # (IF NOT EXISTS) — this is a code↔prod sync, not the thing that delivers the fix.
+    # startupProbe (enabled below) is the backstop in case any index still builds on boot.
+    # Re-converge to mycure prod once it reaches >= 11.20.125.
     # NEVER deploy 11.20.62 (mid-response abort, nginx-edge 502 storm) or 11.20.44 (stale binary)
-    tag: "11.20.87"
+    tag: "11.20.125"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
@@ -92,6 +95,17 @@ hapihub:
   # See charts/hapihub/templates/prune-sessions-cronjob.yaml.
   pruneExpiredSessions:
     enabled: true
+
+  # Enabled for the .87→.125 jump: first pod runs the full concurrent-index
+  # catch-up (0080 btrees on billing_items 7.39M + diagnostic_order_tests 6.29M,
+  # F4a's 5 trgm GINs on personal_details 5.4M/28GB, and every .88–.124 entry)
+  # inside app.setup(), awaited before .listen(), so /health is down for the
+  # whole build. 10s × 540 = 90 min budget before liveness can fire — err high;
+  # a short budget just re-introduces the mid-CONCURRENTLY CrashLoop.
+  startupProbe:
+    enabled: true
+    periodSeconds: 10
+    failureThreshold: 540
 
   livenessProbe:
     enabled: true
