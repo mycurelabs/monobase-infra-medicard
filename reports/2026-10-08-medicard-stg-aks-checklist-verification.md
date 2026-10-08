@@ -88,11 +88,13 @@ Legend: ✅ verified · ⚠️ works-but-differs / partial · ❌ missing/blocke
   **exactly three** secrets: `medicard-staging-minio-root-password`,
   `medicard-staging-mongodb-root-password`, `medicard-staging-postgresql-password`.
   Everything below is genuinely **absent from the Vault** (not merely "not synced"):
-  - ❌ **per-table enc keys** (`enc-medical-records`, `enc-personal-details`, `enc-billing-invoices`, `enc-billing-items`, `enc-billing-payments`) — **MediCard must provide** (migrator needs them to decrypt the `medicard-production` Mongo source PHI; keys must match the source).
+  **MediCard owns/populates the Vault, so every missing value below is theirs to generate:**
+  - ❌ **per-table enc keys** (`enc-medical-records`, `enc-personal-details`, `enc-billing-invoices`, `enc-billing-items`, `enc-billing-payments`) — migrator needs them to decrypt the `medicard-production` Mongo source PHI; keys must match the source.
+  - ❌ `mongo-source-uri` / `pg-target-uri` — migrator connection URIs.
+  - ❌ `AUTH_SECRET` / `BETTER_AUTH_SECRET` / `DATABASE_URI` — hapihub secrets.
   - ❌ `pg-encryption-key` — not required at runtime (hapihub v11 PG-only; PG PII plaintext per audit CRYPTO-1).
-  - ❌ `mongo-source-uri` / `pg-target-uri` — needed by the migrator; values known to us (ours to populate).
-  - ❌ `AUTH_SECRET` / `BETTER_AUTH_SECRET` / `DATABASE_URI` — ours to generate/wire (ESO-vs-direct wiring is an in-cluster concern).
   - ✅ `minio-root-password` present & synced.
+  - ℹ️ Our side provides only the ExternalSecret/manifest wiring (in-cluster, not a client item).
 
 ### 5.d External gateway / TLS / DNS
 - **5.d.i Pattern** ⚠️ internal LB exists (`172.23.32.5`); **no external gateway / public exposure**.
@@ -153,7 +155,7 @@ environment — findings are reported, not remediated.
 2. ❌ Grant `service.mycure@medicardphils.com` the **AKS Cluster User Role** on `aks-mpi-sea-a-mycurex01`.
 3. ⚠️ Staging PG is **public-networked** (`mpiazeapgdb0002` → public IP + firewall), not a private endpoint.
 4. ❌ **No external gateway / public DNS / TLS** for staging (`*-mycurex-dev` = NXDOMAIN); `pxp-mycurex-dev` route missing.
-5. ❌ **Migrator blocker (external):** the per-table PHI **encryption keys** are not in the staging Vault. Connectivity is ready (PG + Mongo both reachable+auth from the cluster); the only client dependency is MediCard provisioning `…-enc-medical-records / …-enc-personal-details / …-enc-billing-invoices / …-enc-billing-items / …-enc-billing-payments` into `kv-mpi-sea-a-mycurex01`. (URIs/auth secrets are ours to populate.)
+5. ❌ **Migrator/app secrets (external):** the staging Vault (`kv-mpi-sea-a-mycurex01`) holds only 3 secrets. Connectivity is ready (PG + Mongo both reachable+auth from the cluster); the client dependency is **MediCard generating + provisioning all the remaining Vault values** — `…-pg-target-uri`, `…-mongo-source-uri`, `…-AUTH_SECRET`, `…-BETTER_AUTH_SECRET`, and the per-table enc keys `…-enc-medical-records / …-enc-personal-details / …-enc-billing-invoices / …-enc-billing-items / …-enc-billing-payments` (enc keys must match the `medicard-production` source). Our side only wires the ExternalSecrets.
 6. ⚠️ **~2.2 TB** in staging PG — confirm the data volume is intended for STG.
 
 ## Related

@@ -77,38 +77,42 @@ medicard-staging-postgresql-password
 ```
 
 The migrator's ExternalSecrets (translated from prod `hapihub-migration-secrets`)
-will reference secrets that are **absent** from the staging Vault:
+will reference secrets that are **absent** from the staging Vault. **MediCard owns
+and populates the Vault, so every value below is theirs to generate/provision:**
 
 | Secret | In Vault? | Owner |
 |---|---|---|
-| `…-pg-target-uri` | ❌ | ours — we can populate (value known: the PG URI) |
-| `…-mongo-source-uri` | ❌ | ours — we can populate (value known from prod) |
+| `…-pg-target-uri` | ❌ | **MediCard** |
+| `…-mongo-source-uri` | ❌ | **MediCard** |
 | `…-enc-medical-records` | ❌ | **MediCard** — source PHI decryption key |
 | `…-enc-personal-details` | ❌ | **MediCard** |
 | `…-enc-billing-invoices` | ❌ | **MediCard** |
 | `…-enc-billing-items` | ❌ | **MediCard** |
 | `…-enc-billing-payments` | ❌ | **MediCard** |
-| `…-AUTH_SECRET` / `…-BETTER_AUTH_SECRET` | ❌ | ours — ESO generator |
+| `…-AUTH_SECRET` / `…-BETTER_AUTH_SECRET` | ❌ | **MediCard** |
 
 ## 5. Conclusion — migrator readiness
 
 - **Connectivity: ready.** Both the Postgres target and the Mongo source are
   reachable + authenticated from inside the staging cluster. No network / firewall
   / Atlas-allowlist action is needed.
-- **Secrets: blocked on MediCard for the encryption keys only.** When the migrator
-  IaC is deployed, its ExternalSecrets will fail to sync until the referenced Vault
-  secrets exist. The **per-table encryption keys must come from MediCard** (they
-  must match the keys used to encrypt the source MongoDB PHI, or decryption fails).
-  The URIs and auth secrets are ours to populate/generate and are not a blocker on
-  the client.
+- **Secrets: blocked on MediCard.** When the migrator IaC is deployed its
+  ExternalSecrets will fail to sync until the referenced Vault secrets exist. Since
+  MediCard populates `kv-mpi-sea-a-mycurex01`, **all** of the missing values are
+  theirs to generate — the URIs, the auth secrets, and (critically) the per-table
+  encryption keys, which must match the keys used to encrypt the source MongoDB PHI
+  or decryption fails. Our side provides only the ExternalSecret/manifest wiring
+  (in-cluster, not a client item).
 
 ## 6. External ask (MediCard)
 
-Provision the per-table PHI **encryption keys** into `kv-mpi-sea-a-mycurex01`
-(same values used to encrypt the `medicard-production` Mongo source):
-`…-enc-medical-records`, `…-enc-personal-details`, `…-enc-billing-invoices`,
-`…-enc-billing-items`, `…-enc-billing-payments`. Without the exact source keys the
-migrator cannot decrypt the source documents.
+Provision the following into `kv-mpi-sea-a-mycurex01` (all MediCard-generated):
+- `…-pg-target-uri`, `…-mongo-source-uri` — migrator connection URIs.
+- `…-AUTH_SECRET`, `…-BETTER_AUTH_SECRET` — hapihub auth secrets.
+- Per-table PHI **encryption keys** — `…-enc-medical-records`, `…-enc-personal-details`,
+  `…-enc-billing-invoices`, `…-enc-billing-items`, `…-enc-billing-payments` — **must
+  match** the keys used to encrypt the `medicard-production` Mongo source, or the
+  migrator cannot decrypt the source documents.
 
 ## 7. What we did NOT do
 
