@@ -57,15 +57,21 @@ Legend: ✅ verified · ⚠️ works-but-differs / partial · ❌ missing/blocke
 - **3.d FQDN resolves from inside AKS** ✅ resolves from the hapihub pod → `4.194.210.116` (⚠️ **public** IP — not a private endpoint).
 - **3.e Capacity** ✅ read-only SCRAM probe: server total ≈ **2264 GB**, essentially all in `postgres`. ⚠️ ~2.2 TB in staging — confirm intended.
 
-### 4. MongoDB source
-- N/A — staging hapihub is **v11 (PG-only)**; `mongodb.enabled=false`, no migrator in the staging runtime. Relevant only to migration activities.
+### 4. MongoDB source (migrator)
+- ✅ **In scope — the migrator runs on this staging runtime.** Source
+  `mongodb+srv://***@mycure-stg-sh.q4trx.mongodb.net/medicard-production` is
+  **reachable + authenticated from inside the staging cluster** (SRV→TCP→TLS→auth;
+  `ping → {ok:1}`, source DB `medicard-production` visible). Atlas already
+  allowlists the staging egress — no network action needed.
+- ⚠️ `mongo-source-uri` not yet in the staging Vault (see 5.c). Full proof in the
+  [DB-connectivity validation report](./2026-10-08-medicard-stg-cluster-database-connectivity-validation.md).
 
 ### 5.a Azure resources
 - **5.a.i AKS** ✅ `aks-mpi-sea-a-mycurex01`, southeastasia, **v1.32.11**, nodes `aks-newpool` + `aks-systempool` Ready.
 - **5.a.ii OIDC / Workload Identity** ✅ working (ESO authenticates to KV via WorkloadIdentity → OIDC issuer + WI enabled).
 - **5.a.iii VNet / subnet / internal LB IP** ✅ internal LB **`172.23.32.5`** (Envoy shared gateway), staging subnet `172.23.32.0/23`.
 - **5.a.iv AKS→PG connectivity** ⚠️ reachable (TCP_OK) but over **public** IP, not a private endpoint.
-- **5.a.v AKS→Mongo** N/A.
+- **5.a.v AKS→Mongo** ✅ reachable + auth from inside the staging cluster (see item 4).
 - **5.a.vi PG Flexible Server** ✅ `mpiazeapgdb0002`, sslmode require, admin `mpadmin02`, `postgres` DB ≈ 2264 GB. (Azure-side storage tier/HA not SQL-queryable; RBAC blocks `az`.)
 - **5.a.vii Mongo shared/separate** N/A.
 
@@ -77,10 +83,15 @@ Legend: ✅ verified · ⚠️ works-but-differs / partial · ❌ missing/blocke
 - **5.b.v Vault RBAC (get/list)** ✅ working (`minio-credentials` ExternalSecret `SecretSynced=True`).
 
 ### 5.c KMS / encryption keys & app secrets in Vault
-- ⚠️ **Only `medicard-staging-minio-root-password` is in the staging Vault via ESO.** Not provisioned:
-  - ❌ `pg-encryption-key` + per-table enc keys (`enc-medical-records`, `enc-personal-details`, `enc-billing-invoices`, `enc-billing-items`, `enc-billing-payments`). (hapihub v11 is PG-only; PG PII stored plaintext per audit CRYPTO-1.)
-  - ❌ `AUTH_SECRET` / `BETTER_AUTH_SECRET` not synced via ESO.
-  - ❌ `DATABASE_URI` not in KV — injected directly into hapihub (not via ESO). Same for `pg-target-uri` / `mongo-source-uri`.
+- Verified **authoritatively** by enumerating the Vault (`az keyvault secret list`
+  via the ESO workload identity, read-only). `kv-mpi-sea-a-mycurex01` contains
+  **exactly three** secrets: `medicard-staging-minio-root-password`,
+  `medicard-staging-mongodb-root-password`, `medicard-staging-postgresql-password`.
+  Everything below is genuinely **absent from the Vault** (not merely "not synced"):
+  - ❌ **per-table enc keys** (`enc-medical-records`, `enc-personal-details`, `enc-billing-invoices`, `enc-billing-items`, `enc-billing-payments`) — **MediCard must provide** (migrator needs them to decrypt the `medicard-production` Mongo source PHI; keys must match the source).
+  - ❌ `pg-encryption-key` — not required at runtime (hapihub v11 PG-only; PG PII plaintext per audit CRYPTO-1).
+  - ❌ `mongo-source-uri` / `pg-target-uri` — needed by the migrator; values known to us (ours to populate).
+  - ❌ `AUTH_SECRET` / `BETTER_AUTH_SECRET` / `DATABASE_URI` — ours to generate/wire (ESO-vs-direct wiring is an in-cluster concern).
   - ✅ `minio-root-password` present & synced.
 
 ### 5.d External gateway / TLS / DNS
@@ -142,11 +153,12 @@ environment — findings are reported, not remediated.
 2. ❌ Grant `service.mycure@medicardphils.com` the **AKS Cluster User Role** on `aks-mpi-sea-a-mycurex01`.
 3. ⚠️ Staging PG is **public-networked** (`mpiazeapgdb0002` → public IP + firewall), not a private endpoint.
 4. ❌ **No external gateway / public DNS / TLS** for staging (`*-mycurex-dev` = NXDOMAIN); `pxp-mycurex-dev` route missing.
-5. ⚠️ Vault holds **only the MinIO password** for staging (DATABASE_URI/auth/enc keys not in KV via ESO).
+5. ❌ **Migrator blocker (external):** the per-table PHI **encryption keys** are not in the staging Vault. Connectivity is ready (PG + Mongo both reachable+auth from the cluster); the only client dependency is MediCard provisioning `…-enc-medical-records / …-enc-personal-details / …-enc-billing-invoices / …-enc-billing-items / …-enc-billing-payments` into `kv-mpi-sea-a-mycurex01`. (URIs/auth secrets are ours to populate.)
 6. ⚠️ **~2.2 TB** in staging PG — confirm the data volume is intended for STG.
 
 ## Related
 
 - monobase-mycure#4521 — "Check Access To STG AKS Cluster" (task + proof screenshots in the checklist comment).
+- [`2026-10-08-medicard-stg-cluster-database-connectivity-validation.md`](./2026-10-08-medicard-stg-cluster-database-connectivity-validation.md) — in-cluster DB connectivity for the migrator.
 - [`2026-10-08-medicard-stg-aks-access-defaults-to-prod.md`](./2026-10-08-medicard-stg-aks-access-defaults-to-prod.md) — companion access report.
 - Memory: `medicard-stg-aks-access-path`, `prod-pg-query-route-scram-python`, `medicard-infra-report-dont-remediate`.
