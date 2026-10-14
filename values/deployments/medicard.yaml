@@ -414,46 +414,74 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
-    tag: "3.7.7"
+    # Aligned to the audited prod tag (3.12.8): convergence-gated completion,
+    # legacy org-type normalization, OOM guards. Bump only via the migrator
+    # release process. (#4521 — staging migrator aligned to the prod line.)
+    tag: "3.12.8"
     pullPolicy: IfNotPresent
-
-  # Kept at 0: the actual migration run is held until the staging migrator is
-  # aligned to the audited prod line (3.12.8 suspended-CronJob + convergence
-  # gates + GridFS storage). This pin is 3.7.7 on the old Deployment schema —
-  # do NOT auto-run it against the ~2.2 TB target. The externalSecrets below
-  # still create `hapihub-migration-secrets` so wiring is ready. (#4521)
-  replicaCount: 0
 
   nodeSelector:
     kubernetes.io/arch: amd64
 
-  resources:
-    requests:
-      cpu: 200m
-      memory: 1Gi
-    limits:
-      cpu: "1"
-      memory: 32Gi
-
   gateway:
     enabled: false
 
-  livenessProbe:
+  # Disabled: the chart's NetworkPolicy egress rules for PG/Mongo/HTTPS use
+  # namespaceSelector (in-cluster only) with no ipBlock, so if the cluster
+  # enforces egress policy it would block the migrator's reach to the EXTERNAL
+  # Azure PG (mpiazeapgdb0002, public IP) and Mongo Atlas — the exact paths
+  # validated in #4521. Cluster egress is already unrestricted + verified.
+  networkPolicy:
     enabled: false
 
+  # Long-lived read-only monitoring UI (its own Deployment). The migration
+  # itself runs as the SUSPENDED CronJob below, not this Deployment.
+  dashboard:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  livenessProbe:
+    enabled: true
   readinessProbe:
-    enabled: false
+    enabled: true
+
+  # Migration runs as a SUSPENDED CronJob — operators trigger a run via
+  # `kubectl create job --from=cronjob/<release>-hapihub-migrator`. Runs to
+  # completion and exits. Kept suspended: the first run must be deliberate
+  # (enc-key correctness is only verifiable live) and targets a ~2.2 TB DB.
+  migrationJob:
+    enabled: true
+    suspend: true
+    backoffLimit: 0        # a failed migration must not silently retry (AUDIT)
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 32Gi
 
   migration:
     mode: "bulk"
     batchSize: "500"
     collectionConcurrency: "1"
-    exitOnBulkEnd: "true"
+    resume: "true"         # resume the latest in-progress run
     existingSecret: "hapihub-migration-secrets"
-    # migrationTimestamp disabled — FerretDB stores _id as strings and timestamps
-    # as numbers, so none of the timestamp strategies work. Migrate all data.
-    # migrationTimestamp: "2026-03-08T00:00:00.000Z"
-    # timestampStrategy: "objectid_only"
+
+  # GridFS → S3 file-bytes migration. DISABLED until wired to the in-cluster
+  # MinIO and validated: staging MinIO keeps its root password in secret `minio`
+  # key `minioRootPassword`, which doesn't match the access-key-id + secret pair
+  # this block expects (prod uses s3proxy with root-user/root-password). Enable +
+  # fix the cred mapping before the first real run, or attachments won't migrate.
+  storage:
+    enabled: false
 
   postgresql:
     uriSecret:

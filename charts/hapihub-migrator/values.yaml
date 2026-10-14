@@ -36,6 +36,7 @@ podSecurityContext:
     type: RuntimeDefault
 
 securityContext:
+  runAsNonRoot: true  # Kyverno require-run-as-non-root checks the container path, not just the pod
   allowPrivilegeEscalation: false
   capabilities:
     drop:
@@ -81,14 +82,63 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# Migration configuration
+# ExternalSecret: sync source/target/encryption secrets from the backing
+# store into `migration.existingSecret`. Off by default; per-deployment
+# values (e.g. values/deployments/medicard.yaml) turn it on and supply the
+# store + remoteKey mappings.
+externalSecrets:
+  enabled: false
+  secretStore: ""
+  secretStoreKind: SecretStore
+  refreshInterval: 1h
+  secrets: []
+
+# Dashboard: long-lived read-only monitoring UI (MODE=dashboard). Serves the
+# SSR dashboard + status/verify/audit from PG. Never touches the Mongo source.
+dashboard:
+  enabled: true
+  replicaCount: 1
+  # resources: {}   # falls back to top-level .resources if unset
+
+# Migration workload: a SUSPENDED CronJob (see cronjob.yaml). ArgoCD manages it
+# but it never auto-fires; operators trigger a run via `kubectl create job --from`.
+migrationJob:
+  enabled: true
+  suspend: true
+  schedule: "0 0 31 2 *"   # Feb 31 = never; the CronJob exists only as a template
+  backoffLimit: 0          # a failed migration must not silently retry
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # activeDeadlineSeconds: 86400
+  # resources: {}          # falls back to top-level .resources if unset
+
+# Migration configuration (consumed by the CronJob's pod template)
 migration:
   mode: "bulk"
   batchSize: "1000"
   collectionConcurrency: "4"
   logLevel: "info"
   maxErrorRate: "0.01"
+  resume: "true"           # RESUME_MIGRATION — resume the latest in-progress run
+  # runId: ""              # pin RUN_ID for a deterministic converging run
+  # startCollectorInBulk: false  # only true if a CDC deployment will follow
+  # bulkCutoffDate: ""     # ISO8601; pin for determinism across restarts
+  # collections: ""        # comma-separated filter
   existingSecret: "hapihub-migration-secrets"
+
+# GridFS → S3 storage migration. Off by default; when enabled the migration
+# CronJob downloads GridFS files and uploads them to the S3 target (endpoint),
+# then points the PG storage_files rows at the new keys.
+storage:
+  enabled: false
+  bucket: ""
+  endpoint: ""            # e.g. http://s3proxy:9000
+  region: "us-east-1"
+  directory: "files"
+  secretName: ""          # secret holding the S3 access key id + secret
+  accessKeyIdKey: "root-user"
+  secretAccessKeyKey: "root-password"
 
 # CDC (Change Data Capture) configuration
 cdc:
