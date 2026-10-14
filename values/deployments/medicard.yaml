@@ -85,11 +85,33 @@ hapihub:
     enabled: false
 
   externalSecrets:
-    enabled: true  # Enables secret mounting in deployment; ESO resource skipped (secrets: [])
+    enabled: true
     secretStore: azure-secretstore
     secretStoreKind: ClusterSecretStore
     refreshInterval: 1h
-    secrets: []
+    # Syncs `hapihub-secrets` from Azure KV (kv-mpi-sea-a-mycurex01) via the
+    # staging ClusterSecretStore. All entries confirmed present + ESO-readable
+    # (monobase-mycure#4521, 2026-10-14). Mirrors the PROD key set with the
+    # `medicard-staging-` prefix. secretKey = k8s Secret key; remoteKey = KV entry.
+    secrets:
+      - secretKey: DATABASE_URI
+        remoteKey: medicard-staging-database-uri
+      - secretKey: AUTH_SECRET
+        remoteKey: medicard-staging-auth-secret
+      - secretKey: ENC_MEDICAL_RECORDS
+        remoteKey: medicard-staging-enc-medical-records
+      - secretKey: ENC_PERSONAL_DETAILS
+        remoteKey: medicard-staging-enc-personal-details
+      - secretKey: ENC_BILLING_INVOICES
+        remoteKey: medicard-staging-enc-billing-invoices
+      - secretKey: ENC_BILLING_ITEMS
+        remoteKey: medicard-staging-enc-billing-items
+      - secretKey: ENC_BILLING_PAYMENTS
+        remoteKey: medicard-staging-enc-billing-payments
+      # hapihub is PG-only and reads MONGO_URI as optional; synced so the key
+      # exists for a read-only mongo client pod if needed.
+      - secretKey: MONGO_URI
+        remoteKey: medicard-staging-mongo-source-uri
 
   # v11: PostgreSQL-only (external Azure PG)
   postgresql:
@@ -395,6 +417,11 @@ hapihubMigrator:
     tag: "3.7.7"
     pullPolicy: IfNotPresent
 
+  # Kept at 0: the actual migration run is held until the staging migrator is
+  # aligned to the audited prod line (3.12.8 suspended-CronJob + convergence
+  # gates + GridFS storage). This pin is 3.7.7 on the old Deployment schema —
+  # do NOT auto-run it against the ~2.2 TB target. The externalSecrets below
+  # still create `hapihub-migration-secrets` so wiring is ready. (#4521)
   replicaCount: 0
 
   nodeSelector:
@@ -432,6 +459,34 @@ hapihubMigrator:
     uriSecret:
       name: "hapihub-migration-secrets"
       key: "pg-target-uri"
+
+  # Syncs `hapihub-migration-secrets` from Azure KV (kv-mpi-sea-a-mycurex01) via
+  # the staging ClusterSecretStore. Mirrors the PROD migrator key set with the
+  # `medicard-staging-` prefix; all entries confirmed present + ESO-readable
+  # (monobase-mycure#4521, 2026-10-14). pg-encryption-key intentionally omitted
+  # (AUDIT CRYPTO-1 — the migrator never reads it; PG PII is plaintext).
+  # NOTE: the enc-* VALUES must match the keys used to encrypt the
+  # medicard-production Mongo source, or decryption fails on the first run.
+  externalSecrets:
+    enabled: true
+    secretStore: azure-secretstore
+    secretStoreKind: ClusterSecretStore
+    refreshInterval: 1h
+    secrets:
+      - secretKey: mongo-source-uri
+        remoteKey: medicard-staging-mongo-source-uri
+      - secretKey: pg-target-uri
+        remoteKey: medicard-staging-pg-target-uri
+      - secretKey: enc-personal-details
+        remoteKey: medicard-staging-enc-personal-details
+      - secretKey: enc-medical-records
+        remoteKey: medicard-staging-enc-medical-records
+      - secretKey: enc-billing-invoices
+        remoteKey: medicard-staging-enc-billing-invoices
+      - secretKey: enc-billing-items
+        remoteKey: medicard-staging-enc-billing-items
+      - secretKey: enc-billing-payments
+        remoteKey: medicard-staging-enc-billing-payments
 
 # ===== BACKUP =====
 backup:
