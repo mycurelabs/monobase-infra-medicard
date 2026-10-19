@@ -414,10 +414,11 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
-    # Aligned to the audited prod tag (3.12.8): convergence-gated completion,
+    # 3.13.0 (mycurelabs/monobase-mycure#5254): typed checkpoint resume, byte-capped batches,
+    # transient-cursor retry, windowed verification — fixes mycurelabs/monobase-mycure#5253.
     # legacy org-type normalization, OOM guards. Bump only via the migrator
     # release process. (#4521 — staging migrator aligned to the prod line.)
-    tag: "3.12.8"
+    tag: "3.13.0"
     pullPolicy: IfNotPresent
 
   nodeSelector:
