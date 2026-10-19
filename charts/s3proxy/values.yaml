@@ -1,0 +1,83 @@
+# s3proxy chart — stateless S3→Azure Blob translator.
+#
+# ponytail: sits behind a Service named `minio` (via fullnameOverride) so
+# hapihub's chart works verbatim — it dials http://minio.<ns>.svc:9000
+# without knowing the backend is s3proxy talking to Azure Blob.
+
+global:
+  domain: example.com
+  namespace: example-prod
+  environment: production
+  gateway:
+    name: shared-gateway
+    namespace: gateway-system
+
+enabled: false
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: andrewgaul/s3proxy
+  tag: "3.3.0"
+  pullPolicy: IfNotPresent
+
+# S3 port hapihub expects to see (matches MinIO's default).
+port: 9000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi   # jclouds JVM baseline
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+# HA knobs — chart defaults are conservative (single-replica, no PDB, no
+# anti-affinity). Deployments that want HA (e.g. MediCard prod) flip
+# replicaCount + podDisruptionBudget + affinity in their values override.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+affinity: {}
+
+# ExternalSecret populates the k8s Secret named `minio` with:
+#   root-user            → S3PROXY_IDENTITY  (also read by hapihub) — from s3Identity below
+#   root-password        → S3PROXY_CREDENTIAL (also read by hapihub) — minted in-cluster by
+#                                                 the Password generator (password-generator.yaml)
+#   azureblob-account    → JCLOUDS_IDENTITY  (from KV)
+#   azureblob-key        → JCLOUDS_CREDENTIAL (from KV)
+externalSecrets:
+  enabled: true
+  secretStore: azure-secretstore
+  secretStoreKind: ClusterSecretStore
+  # KV secret names for the two Azure Blob keys MediCard populates.
+  azureAccountKey: medicard-prod-azureblob-account-name
+  azureBlobKeyKey: medicard-prod-azureblob-account-key
+
+# Blob container name — hapihub will pass this as STORAGE_S3_BUCKET.
+# Kept as plain config (not a secret) since it isn't sensitive.
+container: monobase-files
+
+# Optional Azure Blob endpoint. Empty = jclouds default
+# (https://<account>.blob.core.windows.net). Only set for sovereign clouds.
+azureblobEndpoint: ""
+
+# S3-side identity username used by both s3proxy and hapihub. Not a
+# secret — the corresponding password is minted once by ESO's Password
+# generator; see charts/s3proxy/templates/password-generator.yaml.
+s3Identity: "hapihub"
+
+gateway:
+  enabled: true
+  hostname: ""  # Empty = uses storage.{global.domain}
+  listener: http  # External gateway terminates TLS in prod
+  parentRefs:
+    - name: shared-gateway
+      namespace: gateway-system

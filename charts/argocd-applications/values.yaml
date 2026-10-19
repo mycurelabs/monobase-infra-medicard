@@ -6,3 +6,8 @@ global:
   domain: example.com
   namespace: example
   environment: production
+
+# Default: s3proxy off unless a deployment file opts in. Keeps templates/s3proxy.yaml
+# safe for deployment files that don't declare an `s3proxy:` block.
+s3proxy:
+  enabled: false

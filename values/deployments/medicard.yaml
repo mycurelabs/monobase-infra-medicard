@@ -122,8 +122,17 @@ hapihub:
     enabled: false  # v11 is PG-only
 
   minio:
+    # `minio` here is a legacy values-namespace name — the actual backend
+    # is s3proxy (see the top-level `s3proxy:` block), mirroring prod.
+    # serviceName / secretName point hapihub's STORAGE_S3_* env at the
+    # s3proxy Service + Secret.
     enabled: true
-    defaultBuckets: "monobase-files"
+    serviceName: s3proxy
+    secretName: s3proxy
+    # Azure Blob container in MediCard's staging storage account
+    # (sampseaamycurex01); created 2026-10-19 after MediCard opened network
+    # access from the staging subnet (monobase-mycure#4521).
+    defaultBuckets: "blobmpseaamycurex01"
 
   valkey:
     enabled: false
@@ -316,81 +325,53 @@ mongodb:
 valkey:
   enabled: false
 
-# ===== STORAGE: MinIO Object Storage =====
+# ===== STORAGE: MinIO Object Storage (Bitnami subchart) =====
+# Disabled — s3proxy (below) replaces it, as in prod. Hapihub is pointed at
+# s3proxy via hapihub.minio.serviceName / secretName above.
 minio:
+  enabled: false
+
+# ===== STORAGE: s3proxy → native Azure Blob =====
+# Stateless S3→Blob translator (jclouds azureblob). Presents an S3 API on
+# port 9000 as a Service named `s3proxy`. All bytes live in MediCard's
+# staging storage account sampseaamycurex01 (prod pattern; monobase-mycure#4521).
+s3proxy:
   enabled: true
 
-  # External Secrets configuration
+  # HA: 2 replicas. s3proxy is a pure jclouds pass-through — no local
+  # state — so a second pod behind the Service is safe.
+  replicaCount: 2
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - s3proxy
+            topologyKey: kubernetes.io/hostname
+
   externalSecrets:
     enabled: true
     secretStore: azure-secretstore
-    secrets:
-      - remoteKey: medicard-staging-minio-root-password
-        generator:
-          generate: true
-          type: password
-          description: MinIO root password
+    secretStoreKind: ClusterSecretStore
+    azureAccountKey: medicard-staging-azureblob-account-name
+    azureBlobKeyKey: medicard-staging-azureblob-account-key
 
-  # Bitnami MinIO subchart configuration
-  minio:
-    fullnameOverride: "minio"
+  container: blobmpseaamycurex01
 
-    image:
-      repository: bitnamilegacy/minio
-      tag: "2025.7.23-debian-12-r3"
-
-    mode: standalone
-
-    statefulset:
-      replicaCount: 1
-
-    auth:
-      existingSecret: minio
-
-    persistence:
-      enabled: true
-      storageClass: ""
-      size: 10Gi
-
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-    defaultBuckets: "monobase-files"
-
-    buckets:
-      - name: "monobase-files"
-    region: "us-east-1"
-
-    podSecurityContext:
-      enabled: true
-      fsGroup: 1001
-      fsGroupChangePolicy: "OnRootMismatch"
-
-    containerSecurityContext:
-      enabled: true
-      runAsUser: 1001
-      runAsGroup: 1001
-      runAsNonRoot: true
-      privileged: false
-      readOnlyRootFilesystem: true
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-          - ALL
-      seccompProfile:
-        type: RuntimeDefault
-
-    gateway:
-      enabled: true
-      hostname: "storage-mycurex-dev.medicardphils.com"
-      listener: http  # External gateway handles TLS
-      rateLimit:
-        enabled: false
+  gateway:
+    enabled: true
+    hostname: "storage-mycurex-dev.medicardphils.com"
+    listener: http  # External gateway terminates TLS
 
 # ===== EMAIL TESTING: Mailpit =====
 mailpit:
@@ -476,13 +457,20 @@ hapihubMigrator:
     resume: "true"         # resume the latest in-progress run
     existingSecret: "hapihub-migration-secrets"
 
-  # GridFS → S3 file-bytes migration. DISABLED until wired to the in-cluster
-  # MinIO and validated: staging MinIO keeps its root password in secret `minio`
-  # key `minioRootPassword`, which doesn't match the access-key-id + secret pair
-  # this block expects (prod uses s3proxy with root-user/root-password). Enable +
-  # fix the cred mapping before the first real run, or attachments won't migrate.
+  # ── GridFS → S3 storage migration ──────────────────────────────────────
+  # Without this the bulk run copies only storage.files METADATA and leaves the
+  # file bytes behind — attachments/documents would 404 in the new stack.
+  # Target is the in-cluster s3proxy (S3 → Azure Blob), same container hapihub
+  # reads from, so hapihub resolves the migrated storage_files keys. Mirrors prod.
   storage:
-    enabled: false
+    enabled: true
+    bucket: "blobmpseaamycurex01"
+    endpoint: "http://s3proxy:9000"
+    region: "us-east-1"
+    directory: "files"
+    secretName: "s3proxy"
+    accessKeyIdKey: "root-user"
+    secretAccessKeyKey: "root-password"
 
   postgresql:
     uriSecret:

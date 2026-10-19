@@ -193,7 +193,8 @@ MinIO URL - constructs connection URL from MinIO dependency
 {{- define "hapihub.minio.url" -}}
 {{- if .Values.minio.enabled -}}
 {{- $namespace := include "hapihub.namespace" . -}}
-http://minio.{{ $namespace }}.svc.cluster.local:9000
+{{- $service := .Values.minio.serviceName | default "minio" -}}
+http://{{ $service }}.{{ $namespace }}.svc.cluster.local:9000
 {{- end -}}
 {{- end }}
 

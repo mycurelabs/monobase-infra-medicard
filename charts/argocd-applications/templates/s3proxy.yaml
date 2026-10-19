@@ -1,0 +1,56 @@
+{{- if .Values.s3proxy.enabled }}
+# ArgoCD Application: s3proxy (S3→Azure Blob translation)
+# Sync Wave 2 - Deploy storage before applications (same wave as MinIO)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.global.namespace }}-s3proxy
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  ignoreDifferences:
+  - group: ""
+    kind: ServiceAccount
+    jsonPointers:
+    - /secrets
+    - /imagePullSecrets
+  - group: ""
+    kind: ConfigMap
+    jqPathExpressions:
+    - .data
+
+  source:
+    repoURL: {{ .Values.argocd.repoURL }}
+    targetRevision: {{ .Values.argocd.targetRevision | default "HEAD" }}
+    path: charts/s3proxy
+    helm:
+      releaseName: s3proxy
+      valuesObject:
+        global:
+          {{- .Values.global | toYaml | nindent 10 }}
+        {{- omit .Values.s3proxy "global" | toYaml | nindent 8 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.global.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 5m
+        factor: 2
+{{- end }}
