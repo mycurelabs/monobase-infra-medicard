@@ -395,11 +395,13 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
+    # 3.13.1 (mycurelabs/monobase-mycure#5379): SUPPRESS_TRIGGERS via per-connection SET (Azure admin role
+    # is not superuser, startup-option form is denied); fail-closed SHOW gate kept.
     # 3.13.0 (mycurelabs/monobase-mycure#5254): typed checkpoint resume, byte-capped batches,
     # transient-cursor retry, windowed verification — fixes mycurelabs/monobase-mycure#5253.
     # legacy org-type normalization, OOM guards. Bump only via the migrator
     # release process. (#4521 — staging migrator aligned to the prod line.)
-    tag: "3.13.0"
+    tag: "3.13.1"
     pullPolicy: IfNotPresent
 
   nodeSelector:
