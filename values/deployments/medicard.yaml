@@ -54,9 +54,9 @@ hapihub:
     # on prod before this bump, so the concurrent-index migrator no-ops them on boot
     # (IF NOT EXISTS) — this is a code↔prod sync, not the thing that delivers the fix.
     # startupProbe (enabled below) is the backstop in case any index still builds on boot.
-    # Re-converge to mycure prod once it reaches >= 11.20.125.
+    # Re-converged to mycure prod at 11.20.136 (2026-10-21).
     # NEVER deploy 11.20.62 (mid-response abort, nginx-edge 502 storm) or 11.20.44 (stale binary)
-    tag: "11.20.125"
+    tag: "11.20.136"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
@@ -200,8 +200,8 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    # Upgrade to match mycure production (10.25.110).
-    tag: "10.25.110"
+    # Upgrade to match mycure production (10.25.145).
+    tag: "10.25.145"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas + preferred hostname anti-affinity so the two land on
@@ -571,7 +571,7 @@ hapihubMigrator:
     # untargeted ON CONFLICT DO NOTHING (skip secondary-unique dups as expected
     # drops) + advisory-lock acquire retry + bounded convergence count w/ estimate
     # fallback + reconcile anti-join OOM guard for >20M-row collections — mono#2935.
-    tag: "3.12.8"
+    tag: "3.13.3"
     pullPolicy: IfNotPresent
 
   nodeSelector:
