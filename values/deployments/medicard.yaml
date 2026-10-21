@@ -395,6 +395,7 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
+    # 3.13.3 (mycurelabs/monobase-mycure#5399): no-table -> verify skip (not fail); unknown COLLECTIONS hard-fail at startup.
     # 3.13.2 (mycurelabs/monobase-mycure#5381): Atlas failover/shutdown errors retryable in the cursor-retry path.
     # 3.13.1 (mycurelabs/monobase-mycure#5379): SUPPRESS_TRIGGERS via per-connection SET (Azure admin role
     # is not superuser, startup-option form is denied); fail-closed SHOW gate kept.
@@ -402,7 +403,7 @@ hapihubMigrator:
     # transient-cursor retry, windowed verification — fixes mycurelabs/monobase-mycure#5253.
     # legacy org-type normalization, OOM guards. Bump only via the migrator
     # release process. (#4521 — staging migrator aligned to the prod line.)
-    tag: "3.13.2"
+    tag: "3.13.3"
     pullPolicy: IfNotPresent
 
   nodeSelector:
