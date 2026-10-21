@@ -169,6 +169,10 @@ mycure:
   config:
     API_URL: "https://api-mycurex-dev.medicardphils.com"
     HAPIHUB_URL: "https://api-mycurex-dev.medicardphils.com"
+    # CSP connect-src for this tenant (mycureapp >=10.25.104 reads CONNECT_SRC).
+    # Mirrors prod (main) with the staging API host. Without it the image's default
+    # allows only *.localfirsthealth.com and every API call is blocked by the browser.
+    CONNECT_SRC: "'self' https://api-mycurex-dev.medicardphils.com wss://api-mycurex-dev.medicardphils.com https://us.i.posthog.com https://us-assets.i.posthog.com https://www.googletagmanager.com https://*.google-analytics.com"
 
   podDisruptionBudget:
     enabled: false
