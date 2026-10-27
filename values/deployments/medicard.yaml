@@ -44,7 +44,8 @@ hapihub:
     tag: "11.20.136"
     pullPolicy: IfNotPresent
 
-  replicaCount: 1
+  # 2 replicas like prod: one slow request (e.g. lab worklist) no longer stalls the only pod (#4521).
+  replicaCount: 2
 
   nodeSelector:
     kubernetes.io/arch: amd64
@@ -65,7 +66,7 @@ hapihub:
       enabled: false
 
   config:
-    CLUSTER_INSTANCES: "1"
+    CLUSTER_INSTANCES: "2"
     BETTER_AUTH_RATE_LIMIT_ENABLED: "true"
     BETTER_AUTH_RATE_LIMIT_WINDOW: "60"
     BETTER_AUTH_RATE_LIMIT_MAX: "300"
@@ -79,7 +80,8 @@ hapihub:
     enabled: true
 
   podDisruptionBudget:
-    enabled: false
+    enabled: true
+    minAvailable: 1
 
   autoscaling:
     enabled: false
