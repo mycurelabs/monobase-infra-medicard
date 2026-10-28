@@ -29,7 +29,7 @@
       "required": ["repository", "tag"],
       "properties": {
         "repository": {"type": "string"},
-        "tag": {"type": "string", "pattern": "^([0-9]+\\.[0-9]+\\.[0-9]+|latest)$"},
+        "tag": {"type": "string", "pattern": "^([0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?|latest)$"},
         "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"], "default": "IfNotPresent"}
       }
     },
