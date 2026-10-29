@@ -246,7 +246,7 @@ mycure:
     HAPIHUB_URL: "https://api-mycurex.medicardphils.com"
     # CSP connect-src for this tenant (mycureapp >=10.25.104 reads CONNECT_SRC).
     # 'self' + own API origin (https + wss) + shared posthog/GA; localfirsthealth dropped.
-    CONNECT_SRC: "'self' https://api-mycurex.medicardphils.com wss://api-mycurex.medicardphils.com https://us.i.posthog.com https://us-assets.i.posthog.com https://www.googletagmanager.com https://*.google-analytics.com"
+    CONNECT_SRC: "'self' https://api-mycurex.medicardphils.com wss://api-mycurex.medicardphils.com https://us.i.posthog.com https://us-assets.i.posthog.com https://www.googletagmanager.com https://*.google-analytics.com https://speed.cloudflare.com"
 
   podDisruptionBudget:
     enabled: true
