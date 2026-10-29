@@ -41,7 +41,7 @@ hapihub:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub
-    tag: "11.20.137-medicard.0"
+    tag: "11.20.137-medicard.1"
     pullPolicy: IfNotPresent
 
   # 2 replicas like prod: one slow request (e.g. lab worklist) no longer stalls the only pod (#4521).
@@ -153,7 +153,7 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.25.146-medicard.0"
+    tag: "10.25.146-medicard.1"
     pullPolicy: IfNotPresent
 
   replicaCount: 2
