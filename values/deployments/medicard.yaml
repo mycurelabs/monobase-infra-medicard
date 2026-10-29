@@ -68,13 +68,17 @@ hapihub:
   nodeSelector:
     kubernetes.io/arch: amd64
 
+  # 2x the staging sizing (monobase-mycure#5712): at 2Gi, staging hapihub was
+  # OOMKilled ~41x on MediCard's first real usage day (2026-10-29). Prod node
+  # sizes were NOT verified (no prod context): if these requests don't fit a
+  # userpool node, new pods stay Pending while the old ones keep serving.
   resources:
     requests:
-      cpu: 1000m
-      memory: 768Mi
+      cpu: "4"
+      memory: 16Gi
     limits:
-      cpu: "2"
-      memory: 2Gi
+      cpu: "6"
+      memory: 22Gi
 
   gateway:
     hostnames:
@@ -227,11 +231,11 @@ mycure:
 
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
       cpu: 200m
-      memory: 128Mi
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
   gateway:
     hostname: "cms-mycurex.medicardphils.com"
