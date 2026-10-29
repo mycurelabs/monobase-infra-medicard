@@ -50,13 +50,18 @@ hapihub:
   nodeSelector:
     kubernetes.io/arch: amd64
 
+  # Sized to own the single amd64 app node (D8ds_v5: 7.8 CPU / 30.6 GiB
+  # allocatable), which only runs hapihub + mycure plus ~1.5 CPU / 2.5 GiB of
+  # system/sidecar requests. 2Gi OOM-looped ~41x under MediCard's first real
+  # usage (monobase-mycure#5712). 2 x 11Gi limits + ~4 GiB actual system use
+  # leaves ~4.5 GiB node headroom. Revisit if more apps land on this node.
   resources:
     requests:
-      cpu: 1000m
-      memory: 768Mi
-    limits:
       cpu: "2"
-      memory: 2Gi
+      memory: 8Gi
+    limits:
+      cpu: "3"
+      memory: 11Gi
 
   gateway:
     hostnames:
@@ -151,18 +156,18 @@ mycure:
     tag: "10.25.146-medicard.0"
     pullPolicy: IfNotPresent
 
-  replicaCount: 1
+  replicaCount: 2
 
   nodeSelector:
     kubernetes.io/arch: amd64
 
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 200m
+      cpu: 100m
       memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
   gateway:
     hostname: "cms-mycurex-dev.medicardphils.com"
