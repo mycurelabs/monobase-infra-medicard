@@ -205,7 +205,7 @@ mycure:
   image:
     repository: ghcr.io/mycurelabs/mycureapp
     # MediCard build 10.25.146-medicard.2.
-    tag: "10.25.146-medicard.2"
+    tag: "10.25.146-medicard.3"
     pullPolicy: IfNotPresent
 
   # HA: 2 replicas + preferred hostname anti-affinity so the two land on
