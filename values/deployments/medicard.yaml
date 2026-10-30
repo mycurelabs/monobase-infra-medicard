@@ -153,7 +153,7 @@ mycure:
 
   image:
     repository: ghcr.io/mycurelabs/mycureapp
-    tag: "10.25.146-medicard.1"
+    tag: "10.25.146-medicard.2"
     pullPolicy: IfNotPresent
 
   replicaCount: 2
