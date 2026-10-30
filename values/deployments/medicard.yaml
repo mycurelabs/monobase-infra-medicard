@@ -406,6 +406,7 @@ hapihubMigrator:
 
   image:
     repository: ghcr.io/mycurelabs/hapihub-migrator
+    # 3.13.5 (mycurelabs/monobase-mycure#5745): history rows get _h_created_at/_h_created_by from Mongo _createdAt/_createdBy.
     # 3.13.4 (mycurelabs/monobase-mycure#5667): refuses *_history collections unless the PG table is PRIMARY KEY (id).
     #   On staging the 4 *_history tables have NO PK until the #5653 phase-2 backfill runs, so history
     #   collections fail on purpose until then; non-history collections are unaffected.
@@ -417,7 +418,7 @@ hapihubMigrator:
     # transient-cursor retry, windowed verification — fixes mycurelabs/monobase-mycure#5253.
     # legacy org-type normalization, OOM guards. Bump only via the migrator
     # release process. (#4521 — staging migrator aligned to the prod line.)
-    tag: "3.13.4"
+    tag: "3.13.5"
     pullPolicy: IfNotPresent
 
   nodeSelector:
