@@ -475,6 +475,7 @@ spec:
         --namespace argocd \
         --version 7.7.12 \
         --values values/infrastructure/main.yaml \
+        --values values/infrastructure/argocd-helm.yaml \
         --wait \
         --timeout 10m`.quiet();
       
