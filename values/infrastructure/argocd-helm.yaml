@@ -1,0 +1,27 @@
+# Values for the argo/argo-cd Helm chart itself (7.x), installed by scripts/bootstrap.ts.
+# NOTE: main.yaml's `argocd:` block is NOT read by this chart (it expects top-level
+# `configs`/`controller`/`server` keys), so the live ArgoCD runs chart defaults + this file.
+
+configs:
+  cm:
+    # Kyverno report objects are high-churn and never managed by ArgoCD. Watching them broke the
+    # application-controller's cluster cache on prod ("continue parameter is too old" listing
+    # EphemeralReport.reports.kyverno.io) → every app ComparisonError, no syncs from 2026-09-10.
+    # Kyverno's documented ArgoCD exclusions, plus ArgoCD's stock high-churn defaults.
+    resource.exclusions: |
+      - apiGroups: ["", "discovery.k8s.io"]
+        kinds: [Endpoints, EndpointSlice]
+      - apiGroups: [coordination.k8s.io]
+        kinds: [Lease]
+      - apiGroups: [authentication.k8s.io, authorization.k8s.io]
+        kinds: ["*"]
+      - apiGroups: [certificates.k8s.io]
+        kinds: [CertificateSigningRequest]
+      - apiGroups: [cert-manager.io]
+        kinds: [CertificateRequest]
+      - apiGroups: [kyverno.io]
+        kinds: [AdmissionReport, BackgroundScanReport, ClusterAdmissionReport, ClusterBackgroundScanReport, UpdateRequest]
+      - apiGroups: [reports.kyverno.io]
+        kinds: [EphemeralReport, ClusterEphemeralReport]
+      - apiGroups: [wgpolicyk8s.io]
+        kinds: [PolicyReport, ClusterPolicyReport]
