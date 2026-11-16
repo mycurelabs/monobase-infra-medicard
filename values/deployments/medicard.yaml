@@ -192,8 +192,16 @@ hapihub:
   valkey:
     enabled: true
 
+  # OFF since 2026-11-16 (prod incident). After one Valkey command timeout
+  # (ioredis commandTimeout 300 ms -> E_L2_CACHE_ERROR) hapihub 11.20.138
+  # leaks a Bentocache tag lock and every later cache hit on that pod
+  # never returns: ~15% of requests hung and Envoy answered 504 after 15 s
+  # on both pods. With the cache off hapihub reads PostgreSQL directly.
+  # Re-enable only on a hapihub release that fixes the lock leak
+  # (mycurelabs/monobase-mycure, "requests hang after response cache
+  # Valkey timeout").
   cache:
-    enabled: true
+    enabled: false
 
   mailpit:
     enabled: false  # No mailpit in prod
