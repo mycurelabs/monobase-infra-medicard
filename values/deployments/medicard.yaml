@@ -84,6 +84,14 @@ hapihub:
     hostnames:
       - "api-mycurex.medicardphils.com"
     sectionName: http  # External gateway handles TLS
+    # Envoy Gateway cuts a request after 15 s when the route sets no
+    # timeout, and answers 504 (flag UT). hapihub list calls on the
+    # migrated tables take 15-60 s and finish with 200 after the gateway
+    # already gave up (2026-11-16: about 95 such requests in 8 minutes).
+    # 60 s matches hapihub's PostgreSQL statement_timeout. Lower it again
+    # once the slow lists are fixed in hapihub.
+    timeouts:
+      request: "60s"
     snippetsPolicy:
       enabled: false
 
