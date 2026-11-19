@@ -59,11 +59,11 @@ hapihub:
     tag: "11.20.146"
     pullPolicy: IfNotPresent
 
-  # HA: 2 replicas, one per node via chart-default preferred podAntiAffinity
+  # HA: one pod per node via chart-default preferred podAntiAffinity
   # (kubernetes.io/hostname). PDB (below) keeps at least 1 pod up during
-  # voluntary disruptions. CLUSTER_INSTANCES matches replicaCount so
-  # hapihub's internal worker count doesn't collide across pods.
-  replicaCount: 2
+  # voluntary disruptions. 3 replicas since 2026-11-19 (monobase-mycure#6389):
+  # at 2 pods x 2 workers the API slowed across the board every afternoon.
+  replicaCount: 3
 
   nodeSelector:
     kubernetes.io/arch: amd64
@@ -96,7 +96,9 @@ hapihub:
       enabled: false
 
   config:
-    CLUSTER_INSTANCES: "2"
+    # Worker processes per pod (hapihub src/cli/start.ts; capped at node
+    # CPUs - 1). Independent of replicaCount. 4 since 2026-11-19 (#6389).
+    CLUSTER_INSTANCES: "4"
     BETTER_AUTH_RATE_LIMIT_ENABLED: "true"
     BETTER_AUTH_RATE_LIMIT_WINDOW: "60"
     BETTER_AUTH_RATE_LIMIT_MAX: "300"
