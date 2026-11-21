@@ -56,7 +56,7 @@ hapihub:
     # startupProbe (enabled below) is the backstop in case any index still builds on boot.
     # Re-converged to mycure prod at 11.20.136 (2026-10-21); 11.20.137-medicard.0 (2026-10-28); 11.20.137-medicard.1 (2026-10-29: #5703, #5709, #5712, #5728).
     # NEVER deploy 11.20.62 (mid-response abort, nginx-edge 502 storm) or 11.20.44 (stale binary)
-    tag: "11.20.151"
+    tag: "11.20.152"
     pullPolicy: IfNotPresent
 
   # HA: one pod per node via chart-default preferred podAntiAffinity
