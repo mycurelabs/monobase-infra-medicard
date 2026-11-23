@@ -246,6 +246,12 @@ certManager:
 gateway:
   enabled: true
 
+  # Envoy Gateway CONTROLLER: 2 replicas, same as prod, so staging
+  # exercises the leader/non-leader path. version pins the gateway-helm
+  # chart (default v1.2.0 in templates/gateway.yaml).
+  operator:
+    replicas: 2
+
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: medicardphils.com
 
@@ -300,6 +306,20 @@ gateway:
 envoyProxyConfig:
   enabled: true
   cloudProvider: azure
+
+  # Data-plane: 2 proxy replicas, same as prod.
+  envoyDeployment:
+    replicas: 2
+    pod:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: proxy
+                topologyKey: kubernetes.io/hostname
 
   # Azure AKS Configuration - Internal LoadBalancer with static private IP
   azure:

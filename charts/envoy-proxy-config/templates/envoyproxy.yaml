@@ -10,6 +10,15 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      # Data-plane Deployment (envoy-gateway-system-shared-gateway-*).
+      # Envoy Gateway auto-creates this Deployment from the Gateway CR;
+      # replicas here override the default of 1.
+      envoyDeployment:
+        replicas: {{ .Values.envoyDeployment.replicas | default 1 }}
+        {{- with .Values.envoyDeployment.pod }}
+        pod:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       envoyService:
         {{- if .Values.serviceAnnotations }}
         annotations:

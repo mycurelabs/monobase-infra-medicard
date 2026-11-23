@@ -44,3 +44,13 @@ digitalocean:
 
 # Custom annotations (for any additional cloud-specific settings)
 customAnnotations: {}
+
+# Data-plane HA. The Deployment named
+# `envoy-gateway-system-shared-gateway-*` is auto-created by the Envoy
+# Gateway controller from the Gateway CR. Setting envoyDeployment.replicas
+# here (rendered into the EnvoyProxy CR referenced by the GatewayClass)
+# scales it. Chart default stays at 1; deployments that want HA (e.g.
+# MediCard prod) override to 2.
+envoyDeployment:
+  replicas: 1
+  pod: {}
