@@ -251,6 +251,10 @@ gateway:
   # chart (default v1.2.0 in templates/gateway.yaml).
   operator:
     replicas: 2
+    # v1.2.8: last v1.2 patch. v1.2.4+ stops a non-leader controller's
+    # reconcile loop from blocking on leader-only status writes (upstream
+    # #4767), which froze the non-leader's routes on v1.2.0.
+    version: v1.2.8
 
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: medicardphils.com
