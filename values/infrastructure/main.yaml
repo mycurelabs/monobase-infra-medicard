@@ -269,10 +269,14 @@ gateway:
 
   # HA: bump the Envoy Gateway CONTROLLER to 2 replicas. This is
   # applied by charts/argocd-infrastructure/templates/gateway.yaml into
-  # the gateway-helm chart's deployment.replicas key. The controller is
-  # stateless — parallel reconcilers are safe.
+  # the gateway-helm chart's deployment.replicas key. Every replica serves
+  # routes to proxies; only the leader writes status.
   operator:
     replicas: 2
+    # v1.2.8 (not v1.2.0): on v1.2.0 a non-leader replica's reconcile loop
+    # blocks once its status queue fills and it keeps serving old backend
+    # addresses (23 Nov outage). Fixed upstream in v1.2.4 (#4767).
+    version: v1.2.8
 
   # DEPLOYMENT-SPECIFIC: Override chart default (template uses example.com)
   domain: medicardphils.com
