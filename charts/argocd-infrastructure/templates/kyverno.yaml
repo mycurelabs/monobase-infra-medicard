@@ -32,6 +32,21 @@ spec:
           replicas: {{ .Values.kyverno.replicas | default 1 }}
         reportsController:
           replicas: {{ .Values.kyverno.replicas | default 1 }}
+          # Chart default limit is 128Mi; raised for headroom while the
+          # report backlog is worked through.
+          resources:
+            limits:
+              memory: 768Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        # Admission reports pile up as ephemeralreports faster than the
+        # reports-controller aggregates them (391k backlog on 2026-11-23,
+        # inflating etcd). Background-scan PolicyReports still cover the
+        # audit policies; admission evaluation itself is unaffected.
+        features:
+          admissionReports:
+            enabled: false
         cleanupController:
           replicas: {{ .Values.kyverno.replicas | default 1 }}
         # Bitnami migrated their public Docker Hub images to `bitnamilegacy/*`
