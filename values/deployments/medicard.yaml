@@ -495,6 +495,13 @@ valkey:
       enabled: true
       storageClass: ""
       size: 8Gi
+    # Cap the cache below the 1Gi limit and evict least-recently-used keys.
+    # Without a cap the AOF grew past 1Gi and valkey OOM-looped on load
+    # (25 Nov 2026). 640mb leaves room for fragmentation and the AOF
+    # rewrite fork.
+    configuration: |-
+      maxmemory 640mb
+      maxmemory-policy allkeys-lru
     resources:
       requests:
         cpu: 100m
